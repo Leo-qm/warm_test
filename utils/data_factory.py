@@ -1,24 +1,41 @@
 # -*- coding: utf-8 -*-
+"""
+随机数据生成工厂模块
+用于在 UI 或接口测试中快速生成符合业务逻辑的伪造数据（如中文名、身份证、手机号等）。
+"""
+
 import uuid
 import random
 import string
 from datetime import datetime
 
 class DataFactory:
-    """生成测试所需的随机数据"""
+    """
+    数据工厂类
+    提供静态方法用于生成各种类型的随机测试数据。
+    """
 
+    # 预设姓氏与常用名字，用于生成随机姓名
     _SURNAMES = list("赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张")
     _FIRST_NAMES = list("伟芳娜敏静丽强磊洋艳勇军杰娟涛超明华雪飞平剛")
 
     @staticmethod
     def random_chinese_name() -> str:
+        """
+        随机生成一个 2~3 字的中文姓名
+        :return: 姓名字符串
+        """
         surname = random.choice(DataFactory._SURNAMES)
         given = "".join(random.choices(DataFactory._FIRST_NAMES, k=random.randint(1, 2)))
         return surname + given
 
     @staticmethod
     def random_id_card() -> str:
-        """生成 18 位随机身份证号（简易版）"""
+        """
+        生成符合长度要求的 18 位随机身份证号 (简易算法)
+        注意：仅满足基本的正则校验长度，不保证符合复杂的地区/校验位算法。
+        :return: 身份证号码字符串
+        """
         area = random.choice(["370102", "110101", "320106", "440305", "510104"])
         year = random.randint(1960, 2005)
         month = random.randint(1, 12)
@@ -29,18 +46,32 @@ class DataFactory:
 
     @staticmethod
     def random_phone() -> str:
+        """
+        随机生成符合中国手机号段规律的 11 位号码
+        :return: 手机号字符串
+        """
         prefix = random.choice(["138", "139", "186", "187", "150", "151", "132", "155"])
         tail = "".join(random.choices(string.digits, k=8))
         return prefix + tail
 
     @staticmethod
     def random_address() -> str:
+        """
+        生成随机的详细地址
+        :return: 地址字符串
+        """
         streets = ["银杏路", "清风大道", "阳光街", "民生路", "和平巷", "建设路", "幸福大街"]
         return f"测试{random.choice(streets)}{random.randint(1, 200)}号"
 
     @staticmethod
     def build_test_data(is_household: str = "是") -> dict:
-        """构建表单所需全量随机数据"""
+        """
+        自动化构建业务表单所需的全量随机字典数据
+        包含户主名、身份证、手机号、申报地址、银行卡、购置金额等。
+        
+        :param is_household: 是否为本户
+        :return: 预填写的表单数据字典
+        """
         sn = uuid.uuid4().hex[:6]
         return {
             "is_household": is_household,
