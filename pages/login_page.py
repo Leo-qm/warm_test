@@ -12,9 +12,9 @@ class LoginPage(BasePage):
         super().__init__(page)
         self.ocr = ocr
 
-    def login(self):
-        """执行完整登录流程（含验证码识别与重试）"""
-        log("业务步骤", "========== 执行登录流程 ==========", "STEP")
+    def login(self, role="village"):
+        """执行完整登录流程（含验证码识别与重试），可通过 role 参数切换登录角色"""
+        log("业务步骤", f"========== 执行登录流程 (角色: {role}) ==========", "STEP")
         base_url = Config.get_base_url()
         log("登录", f"正在打开测试地址: {base_url}", "INFO")
         self.page.goto(base_url)
@@ -24,6 +24,7 @@ class LoginPage(BasePage):
             try:
                 # 检查是否已经在首页
                 if self.page.locator(".cls-title").count() > 0:
+                    # 获取当前登录用户信息，如果在项目中可以提取当前登录用户名并比对，则可决定是否需要登出，这里简化处理。
                     log("登录", "已处于登录状态", "OK")
                     return
 
@@ -34,10 +35,10 @@ class LoginPage(BasePage):
 
                 # 显式清除之前的输入
                 self.page.locator("input[placeholder='请输入用户名']").fill("")
-                self.page.fill("input[placeholder='请输入用户名']", Config.get_username())
+                self.page.fill("input[placeholder='请输入用户名']", Config.get_username(role))
 
                 self.page.locator("input[placeholder='请输入密码']").fill("")
-                self.page.fill("input[placeholder='请输入密码']", Config.get_password())
+                self.page.fill("input[placeholder='请输入密码']", Config.get_password(role))
 
                 captcha_img = self.page.locator("img.login-code-img")
                 captcha_img.wait_for(state="visible", timeout=Config.ELEMENT_TIMEOUT)
@@ -69,3 +70,13 @@ class LoginPage(BasePage):
                 log("登录", f"未进入首页，重试... {e}", "WARN")
         raise Exception("登录失败")
 
+    def logout(self):
+        """强制登出：清理会话 Cookie 并刷新页面，以便进行账号切换"""
+        log("登录", "清理登录状态，准备重新登录...", "INFO")
+        try:
+            self.page.context.clear_cookies()
+            # 尝试刷新回退到登录页
+            self.page.goto(Config.get_base_url())
+            self.page.wait_for_selector("input[placeholder='请输入用户名']", timeout=5000)
+        except Exception as e:
+            log("登录", f"强制登出发生异常 (可能已是登录页): {e}", "WARN")

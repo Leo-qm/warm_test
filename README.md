@@ -66,11 +66,12 @@ warm_test/
 pytest -vs
 ```
 
-### 2. 执行冒烟测试 (验证环境与登录可用)
-验证主流程（如账号验证码登录）是否顺畅：
+### 2. 执行冒烟测试 (验证多角色和登录可用)
+验证主流程（如多角色的账号验证码登录）是否顺畅：
 ```bash
 pytest -m smoke -vs
 ```
+*注：可通过在用例中使用 `@pytest.mark.parametrize("role", ["village", "town"])` 并配合 `login_page.logout()` 与 `login_page.login(role)` 来动态实现多角色测试。*
 
 ### 3. 执行端到端 (E2E) 闭环测试
 执行完整复杂的业务链路（例如清洗取暖设备的“新增-查询-查看-修改-删除”闭环）：

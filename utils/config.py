@@ -13,8 +13,6 @@ class Config:
     # 环境切换：可选 "local", "test"
     ENV_TYPE = "local" 
     
-    # 角色切换：可选 "admin", "city", "district", "town", "village"
-    USER_ROLE = "village"
     # =================================================
 
     # 环境字典：聚合地址与账号
@@ -57,14 +55,14 @@ class Config:
         return url
 
     @classmethod
-    def get_username(cls):
+    def get_username(cls, role="village"):
         accounts = cls._get_env_config()["accounts"]
-        return accounts.get(cls.USER_ROLE, accounts["village"])["username"]
+        return accounts.get(role, accounts["village"])["username"]
 
     @classmethod
-    def get_password(cls):
+    def get_password(cls, role="village"):
         accounts = cls._get_env_config()["accounts"]
-        return accounts.get(cls.USER_ROLE, accounts["village"])["password"]
+        return accounts.get(role, accounts["village"])["password"]
 
     # 浏览器设置
     HEADLESS = False
