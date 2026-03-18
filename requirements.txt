@@ -1,0 +1,8 @@
+playwright
+ddddocr
+pycryptodome
+requests
+pytest
+pytest-xdist
+pytest-ordering
+pytest-rerunfailures
