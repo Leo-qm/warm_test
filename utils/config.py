@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 import os
+import sys
+
+# 【防玄学神器】禁止 Python 缓存当前模块的 .pyc 文件
+# 以后你每次只管直接改这篇代码，改完 Ctrl+S，环境立刻无缝切换，绝不需要清理缓存！
+sys.dont_write_bytecode = True
 
 # [DEBUG] 打印加载路径，确保用户修改的是同一个文件
 print(f"[CONFIG] 配置文件加载路径: {os.path.abspath(__file__)}")
@@ -11,7 +16,7 @@ class Config:
 
     # ================= 配置开关 (一键切换) =================
     # 环境切换：可选 "local", "test"
-    ENV_TYPE = "local" 
+    ENV_TYPE = "test" 
     
     # =================================================
 

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import time
 from pages.base_page import BasePage
+import allure
 from utils.config import Config
 from utils.logger import log, log_err
 
@@ -12,6 +13,7 @@ class LoginPage(BasePage):
         super().__init__(page)
         self.ocr = ocr
 
+    @allure.step("登录系统 (角色: {role})")
     def login(self, role="village"):
         """执行完整登录流程（含验证码识别与重试），可通过 role 参数切换登录角色"""
         log("业务步骤", f"========== 执行登录流程 (角色: {role}) ==========", "STEP")
@@ -70,12 +72,17 @@ class LoginPage(BasePage):
                 log("登录", f"未进入首页，重试... {e}", "WARN")
         raise Exception("登录失败")
 
+    @allure.step("强制登出清理全量缓存")
     def logout(self):
-        """强制登出：清理会话 Cookie 并刷新页面，以便进行账号切换"""
+        """强制登出：清理会话状态并刷新页面，以便进行单次浏览器内账号切换"""
         log("登录", "清理登录状态，准备重新登录...", "INFO")
         try:
+            # 1. 清理 Cookie
             self.page.context.clear_cookies()
-            # 尝试刷新回退到登录页
+            # 2. 清理 Local Storage 和 Session Storage (解决 token 残留导致自动跳回首页)
+            self.page.evaluate("() => { window.localStorage.clear(); window.sessionStorage.clear(); }")
+            
+            # 3. 拦截等待重定向回登录页
             self.page.goto(Config.get_base_url())
             self.page.wait_for_selector("input[placeholder='请输入用户名']", timeout=5000)
         except Exception as e:

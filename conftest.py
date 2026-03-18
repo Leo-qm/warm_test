@@ -12,6 +12,45 @@ from utils.config import Config
 from utils.logger import log, log_err
 from utils.ocr_helper import OCRHelper
 from pages.login_page import LoginPage
+from datetime import datetime
+
+
+# ==================== 测试报告定制 ====================
+
+def pytest_configure(config):
+    """定制报告顶部的 Environment 栏目"""
+    if not hasattr(config, "_metadata"):
+        return
+    # 移除冗余信息
+    config._metadata.pop("JAVA_HOME", None)
+    config._metadata.pop("Plugins", None)
+    # 添加业务相关信息
+    config._metadata["测试项目"] = "清洁取暖设备申报系统 (WARM)"
+    config._metadata["运行环境"] = Config.ENV_TYPE.upper()
+    config._metadata["测试地址"] = Config.get_base_url()
+    config._metadata["执行时间"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def pytest_html_results_summary(prefix, summary, postfix):
+    """注入自定义 CSS 样式，提升报告视觉效果"""
+    prefix.extend([
+        "<style>",
+        "body { font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; color: #333; }",
+        "h1 { color: #0056b3; font-weight: 700; margin-bottom: 20px; border-bottom: 2px solid #0056b3; padding-bottom: 10px; }",
+        "#environment { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 20px; }",
+        "table { border-collapse: separate; border-spacing: 0; width: 100%; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }",
+        "thead th { background-color: #0056b3; color: white; padding: 12px; font-weight: 600; text-align: left; border: none; }",
+        "tbody tr { transition: background-color 0.2s; }",
+        "tbody tr:hover { background-color: #f1f3f5; }",
+        "td { padding: 12px; border-bottom: 1px solid #dee2e6; vertical-align: middle; }",
+        ".passed { color: #28a745; font-weight: 600; }",
+        ".failed { color: #dc3545; font-weight: 600; }",
+        ".skipped { color: #6c757d; font-weight: 600; }",
+        ".log { font-family: 'Consolas', monospace; font-size: 13px; color: #495057; background: #f8f9fa; padding: 10px; border-radius: 4px; border: 1px solid #e9ecef; }",
+        "img { border-radius: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-top: 10px; max-width: 600px !important; cursor: pointer; transition: transform 0.2s; }",
+        "img:hover { transform: scale(1.02); }",
+        "</style>"
+    ])
 
 
 # ==================== 环境自检 ====================
@@ -84,3 +123,47 @@ def logged_in_page(page, ocr_engine):
 def env_config():
     """环境配置"""
     return Config()
+
+
+# ==================== 测试报告增强钩子 ====================
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """
+    捕捉测试失败情况，为 pytest-html 报告自动截取失败页面截图
+    """
+    outcome = yield
+    report = outcome.get_result()
+    extras = getattr(report, "extra", [])
+
+    if report.when == "call" and report.failed:
+        # 尝试从该用例的夹具中拿到底层的 page 对象
+        page = item.funcargs.get("page", None)
+        if not page and "logged_in_page" in item.funcargs:
+            page = item.funcargs.get("logged_in_page")
+
+        if page:
+            try:
+                # 生成唯一截图文件名
+                import time
+                screenshot_name = f"fail_{item.name}_{int(time.time())}.png"
+                screenshot_path = os.path.join(Config.SCREENSHOT_DIR, screenshot_name)
+                
+                # 执行截图
+                page.screenshot(path=screenshot_path)
+                log("测试失败", f"[{item.name}] 执行失败，已截图 -> {screenshot_path}", "ERROR")
+
+                # 兼容新版 pytest-html 的附图方式
+                import base64
+                with open(screenshot_path, "rb") as f:
+                    image_b64 = base64.b64encode(f.read()).decode("utf-8")
+                    
+                pytest_html = item.config.pluginmanager.getplugin("html")
+                if pytest_html is not None:
+                    # 使用 image(b64, name) 方式附加
+                    extras.append(pytest_html.extras.image(image_b64, "失败截图"))
+                    
+            except Exception as e:
+                log_err("测试失败", "尝试捕捉失败截图时发生异常", e)
+
+    report.extra = extras
