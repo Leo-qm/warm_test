@@ -23,3 +23,7 @@ ENV/
 # IDE
 .idea/
 .vscode/
+
+# Reports
+reports/
+*.html
