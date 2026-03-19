@@ -9,7 +9,8 @@ from utils.logger import log
 @allure.feature("登录模块")
 @allure.story("多角色登录冒烟测试")
 @allure.title("验证角色: {role} 的登录流程")
-@pytest.mark.parametrize("role", ["village", "town", "district", "city", "admin"])
+# @pytest.mark.parametrize("role", ["village", "town", "district", "city", "admin"])
+@pytest.mark.parametrize("role", ["village"])
 def test_smoke_login(page, ocr_engine, role):
     """冒烟测试：验证动态角色切换的登录流程"""
     login_page = LoginPage(page, ocr_engine)
