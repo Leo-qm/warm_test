@@ -32,7 +32,7 @@ class Config:
     # 环境字典：聚合不同环境下的基础地址与业务账号
     ENV_MAP = {
         "local": {
-            "url": "http://localhost:8888/",
+            "url": "http://localhost:8889/#/admin/",
             "accounts": {
                 "admin":    {"username": "gly1",    "password": "Pass@000000"},
                 "city":     {"username": "shiji1",  "password": "Pass@000000"},
@@ -44,11 +44,11 @@ class Config:
         "test": {
             "url": "https://rural.touchit.com.cn/agri/#/admin?redirect=%2FcleanEnergy",
             "accounts": {
-                "admin":    {"username": "gly1",    "password": "Pass@000000"},
-                "city":     {"username": "shiji1",  "password": "Pass@000000"},
-                "district": {"username": "quji1",   "password": "Pass@000000"},
-                "town":     {"username": "zhenji1", "password": "Pass@000000"},
-                "village":  {"username": "cunji1",  "password": "Pass@000000"},
+                "admin":    {"username": "18800000060",    "password": "Pass@000000"},
+                "city":     {"username": "shiji1",         "password": "Pass@000000"},
+                "district": {"username": "quji1",          "password": "Pass@000000"},
+                "town":     {"username": "zhenji1",        "password": "Pass@000000"},
+                "village":  {"username": "cunji1",         "password": "Pass@000000"},
             }
         }
     }

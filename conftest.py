@@ -12,7 +12,21 @@ from utils.config import Config
 from utils.logger import log, log_err
 from utils.ocr_helper import OCRHelper
 from pages.login_page import LoginPage
+from pages.audit_page import AuditPage
+from pages.ledger_page import LedgerPage
 from datetime import datetime
+
+
+@pytest.fixture(scope="session")
+def audit_p(page):
+    """申报审核管理页对象"""
+    return AuditPage(page)
+
+
+@pytest.fixture(scope="session")
+def ledger_p(page):
+    """设备申报台账管理页对象"""
+    return LedgerPage(page)
 
 
 # ==================== 测试报告定制 ====================
@@ -93,7 +107,7 @@ def browser_context():
             "viewport": {"width": Config.VIEWPORT_W, "height": Config.VIEWPORT_H}
         }
 
-        context = browser.new_context(**context_args)
+        context = browser.new_context(**context_args, ignore_https_errors=True)
         yield context
         browser.close()
         log("运行器", "测试周期结束，浏览器已关闭")
@@ -109,11 +123,20 @@ def page(browser_context):
 
 @pytest.fixture(scope="session")
 def logged_in_page(page, ocr_engine):
-    """已登录并导航到申报页面的 page（会话级别，仅执行一次登录）"""
+    """已登录并通过门户进入申报页面的 page"""
+    from pages.login_page import LoginPage
+    from pages.home_page import HomePage
+    from pages.declaration_page import DeclarationPage
+    
+    # 1. 登录
     login_page = LoginPage(page, ocr_engine)
     login_page.login()
     
-    from pages.declaration_page import DeclarationPage
+    # 2. 从门户进入业务模块
+    home_page = HomePage(page)
+    home_page.enter_equipment_update_module()
+    
+    # 3. 导航到具体业务页
     declaration_page = DeclarationPage(page)
     declaration_page.navigate_to_declaration()
     return page

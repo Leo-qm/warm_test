@@ -92,4 +92,10 @@ class DataFactory:
             "invoice_number": f"INV{datetime.now().strftime('%Y%m%d')}{random.randint(100, 999)}",
             "installer_name": DataFactory.random_chinese_name() + "师傅",
             "installer_phone": DataFactory.random_phone(),
+            # 补贴申报专用字段
+            "energy_type": random.choice(["煤改电", "煤改气", "生物质"]),
+            "declaration_type": random.choice(["设备新增", "设备更新"]),
+            "device_brand": random.choice(["格力", "美的", "海尔", "大金"]),
+            "device_model": f"WS-MOD-{random.randint(100, 999)}",
+            "subsidy_amount": str(random.randint(500, 5000)),
         }
