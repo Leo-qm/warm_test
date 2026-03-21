@@ -45,10 +45,10 @@ class Config:
             "url": "https://rural.touchit.com.cn/agri/#/admin?redirect=%2FcleanEnergy",
             "accounts": {
                 "admin":    {"username": "18800000060",    "password": "Pass@000000"},
-                "city":     {"username": "shiji1",         "password": "Pass@000000"},
-                "district": {"username": "quji1",          "password": "Pass@000000"},
-                "town":     {"username": "zhenji1",        "password": "Pass@000000"},
-                "village":  {"username": "cunji1",         "password": "Pass@000000"},
+                "city":     {"username": "qingjieshi",     "password": "Pass@000000"},
+                "district": {"username": "qingjiequ",      "password": "Pass@000000"},
+                "town":     {"username": "qingjiezhen",    "password": "Pass@000000"},
+                "village":  {"username": "qingjiecun",     "password": "Pass@000000"},
             }
         }
     }
