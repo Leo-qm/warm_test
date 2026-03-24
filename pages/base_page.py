@@ -111,3 +111,87 @@ class BasePage:
     def get_dialog_body(self):
         """获取可见对话框内容区"""
         return self.page.locator(".el-dialog__body >> visible=true").first
+
+    def fill_input_by_label(self, label_text, value, timeout=5000, exact=False):
+        """
+        通用方法：根据标签文本定位附近的 input 并填充值
+        解决搜索栏不使用 .el-form-item 结构时的定位问题，
+        并且确保通过 Playwright 原生 fill() 触发 Vue v-model 绑定。
+
+        Args:
+            exact: 当为 True 时，使用精确匹配标签文本（避免"安装人员"误匹配"安装人员联系电话"）
+        """
+        marker = f"auto-fill-{label_text}"
+
+        # 策略1：Playwright 原生定位 + fill（force click 绕过遮挡层）
+        try:
+            if exact:
+                # 精确匹配：找标签精确文本，上溯到 form-item，再定位 input
+                label_el = self.page.get_by_text(label_text, exact=True).first
+                form_item = label_el.locator("xpath=ancestor::div[contains(@class,'el-form-item')]").first
+                loc = form_item.locator("input").first
+            else:
+                loc = self.page.locator(
+                    f".el-form-item:has-text('{label_text}') input"
+                ).first
+            if loc.is_visible(timeout=2000):
+                loc.click(force=True)
+                loc.fill(value)
+                log("搜索填充", f"✅ [{label_text}] 已填入: {value}")
+                return True
+        except:
+            pass
+
+        # 策略2：JS 定位标签文本附近的 input 并标记
+        log("搜索填充", f"策略1未命中，尝试 JS 定位 [{label_text}] 附近的输入框...", "WARN")
+        found = self.page.evaluate(f"""() => {{
+            // 遍历所有元素，找到包含目标文本的标签
+            const allElements = document.querySelectorAll('span, label, div, td, th, p, a');
+            for (const el of allElements) {{
+                // 精准匹配：直接文本内容包含标签文本
+                const directText = Array.from(el.childNodes)
+                    .filter(n => n.nodeType === 3)
+                    .map(n => n.textContent.trim())
+                    .join('');
+                if (!directText.includes('{label_text}')) continue;
+
+                // 找到标签了，现在寻找附近的 input
+                // 方案A: 同一父容器内的 input
+                let input = el.parentElement?.querySelector('input:not([type=hidden])');
+                // 方案B: 下一个兄弟元素中的 input
+                if (!input) {{
+                    let sibling = el.nextElementSibling;
+                    for (let i = 0; i < 3 && sibling; i++) {{
+                        input = sibling.tagName === 'INPUT' ? sibling : sibling.querySelector('input:not([type=hidden])');
+                        if (input) break;
+                        sibling = sibling.nextElementSibling;
+                    }}
+                }}
+                // 方案C: 父级的下一个兄弟
+                if (!input) {{
+                    let parentSibling = el.parentElement?.nextElementSibling;
+                    if (parentSibling) {{
+                        input = parentSibling.tagName === 'INPUT' ? parentSibling : parentSibling.querySelector('input:not([type=hidden])');
+                    }}
+                }}
+                if (input) {{
+                    input.setAttribute('data-auto-marker', '{marker}');
+                    return true;
+                }}
+            }}
+            return false;
+        }}""")
+
+        if found:
+            try:
+                target = self.page.locator(f"[data-auto-marker='{marker}']")
+                target.click(force=True)
+                target.fill(value)
+                log("搜索填充", f"✅ [{label_text}] JS 兜底成功，已填入: {value}")
+                return True
+            except Exception as e:
+                log("搜索填充", f"JS 定位到元素但 fill 失败: {e}", "ERROR")
+                return False
+        else:
+            log("搜索填充", f"❌ 未能在页面中找到 [{label_text}] 对应的输入框", "ERROR")
+            return False

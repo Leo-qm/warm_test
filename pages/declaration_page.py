@@ -63,27 +63,9 @@ class DeclarationPage(BasePage):
         except:
             pass
 
-        # 3. 填充申报编号
+        # 3. 填充申报编号（使用通用方法，自动适配不同 DOM 结构）
         log("查询", f"填充申报编号: {order_id}")
-        input_sel = ".el-form-item:has-text('申报编号') input, input[placeholder*='申报编号']"
-
-        try:
-            self.page.wait_for_selector(input_sel, state="visible", timeout=10000)
-            target = self.page.locator(input_sel).first
-            target.click(force=True)
-            target.fill(order_id, force=True)
-            time.sleep(0.5)
-        except Exception as e:
-            log("查询", f"输入失败，尝试 evaluate 兜底: {e}", "WARN")
-            self.page.evaluate(f"""() => {{
-                let el = Array.from(document.querySelectorAll("input[placeholder]"))
-                              .find(i => i.placeholder.includes('申报编号') || i.placeholder.includes('请输入编号'));
-                if(el) {{
-                    el.value = '{order_id}';
-                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                }}
-            }}""")
+        self.fill_input_by_label("申报编号", order_id)
 
         # 4. 点击搜索
         log("查询", "点击搜索按钮")
@@ -258,26 +240,61 @@ class DeclarationPage(BasePage):
             return None
 
     def _upload(self, body):
-        """统一上传附件"""
+        """
+        统一上传附件
+        滚动整个表单区域，发现所有 file input 并逐一上传
+        """
         log("上传", ">>> 执行文件上传策略", "STEP")
         test_img = os.path.join(os.getcwd(), "test_upload.png")
         if not os.path.exists(test_img):
             self.page.screenshot(path=test_img)
 
+        # 回到顶部
         if body:
             body.evaluate("el => el.scrollTop = 0")
+        
         uploaded = set()
-        for pos in range(0, 3001, 500):
+        prev_count = 0  # 上一轮上传数量，用于检测是否有新增
+        no_new_rounds = 0  # 连续无新增上传的轮次
+
+        # 恢复完整滚动范围，确保覆盖所有附件区域
+        for pos in range(0, 3001, 400):
+            if body:
+                body.evaluate(f"el => el.scrollTop = {pos}")
+            time.sleep(0.3)
+            
             inputs = self.page.locator("input[type='file']")
-            for i in range(inputs.count()):
+            total = inputs.count()
+            for i in range(total):
                 if i not in uploaded:
                     try:
                         inputs.nth(i).set_input_files(test_img)
                         uploaded.add(i)
-                        time.sleep(0.5)
                     except:
                         pass
-            if body:
-                body.evaluate(f"el => el.scrollTop = {pos}")
+            
+            # 检查是否有新增上传
+            if len(uploaded) == prev_count:
+                no_new_rounds += 1
+            else:
+                no_new_rounds = 0
+                prev_count = len(uploaded)
+            
+            # 连续 3 轮无新增 且 已有上传 → 提前退出
+            if no_new_rounds >= 3 and len(uploaded) > 0:
+                break
+
+        # 二次验证：回到顶部再扫一次，确保不遗漏
+        if body:
+            body.evaluate("el => el.scrollTop = 0")
             time.sleep(0.3)
+        remaining = self.page.locator("input[type='file']")
+        for i in range(remaining.count()):
+            if i not in uploaded:
+                try:
+                    remaining.nth(i).set_input_files(test_img)
+                    uploaded.add(i)
+                except:
+                    pass
+
         log("上传", f"✅ 已上传 {len(uploaded)} 个文件", "OK")

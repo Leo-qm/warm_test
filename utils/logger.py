@@ -42,8 +42,13 @@ class Logger:
         # 组装格式化行
         line = f"[{ts}] {sym} [{tag}] {msg}"
         
-        # 1. 输出到控制台
-        print(line)
+        # 1. 输出到控制台（兼容 Windows GBK 终端）
+        try:
+            print(line)
+        except UnicodeEncodeError:
+            # Windows 控制台默认 GBK 编码无法打印 emoji 等 Unicode 字符
+            import sys
+            sys.stdout.buffer.write((line + "\n").encode("utf-8", errors="replace"))
         
         # 2. 持久化到文件
         try:
