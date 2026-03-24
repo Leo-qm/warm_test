@@ -123,18 +123,23 @@ def page(browser_context):
 
 @pytest.fixture(scope="session")
 def logged_in_page(page, ocr_engine):
-    """已登录并通过门户进入申报页面的 page"""
+    """
+    已登录并进入申报页面的 page
+    - local 环境: 登录后直达清洁能源系统，无需门户跳转
+    - test 环境:  登录后进入门户首页，需点击模块卡片跳转
+    """
     from pages.login_page import LoginPage
-    from pages.home_page import HomePage
     from pages.declaration_page import DeclarationPage
     
-    # 1. 登录
+    # 1. 登录（LoginPage 内部已自动适配环境）
     login_page = LoginPage(page, ocr_engine)
     login_page.login()
     
-    # 2. 从门户进入业务模块
-    home_page = HomePage(page)
-    home_page.enter_equipment_update_module()
+    # 2. 仅 test 环境需要门户跳转
+    if Config.needs_portal_navigation():
+        from pages.home_page import HomePage
+        home_page = HomePage(page)
+        home_page.enter_equipment_update_module()
     
     # 3. 导航到具体业务页
     declaration_page = DeclarationPage(page)

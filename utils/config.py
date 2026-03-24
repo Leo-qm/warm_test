@@ -25,16 +25,16 @@ class Config:
 
     # ================= 配置开关 (一键切换) =================
     # 环境切换：可选 "local" (本地开发环境), "test" (联调/测试环境)
-    ENV_TYPE = "test" 
+    ENV_TYPE = "local" 
     
     # =================================================
 
     # 环境字典：聚合不同环境下的基础地址与业务账号
     ENV_MAP = {
         "local": {
-            "url": "http://localhost:8889/#/admin/",
+            "url": "http://localhost:8888/",
             "accounts": {
-                "admin":    {"username": "gly1",    "password": "Pass@000000"},
+                "admin":    {"username": "qiang",   "password": "Pass@000000"},
                 "city":     {"username": "shiji1",  "password": "Pass@000000"},
                 "district": {"username": "quji1",   "password": "Pass@000000"},
                 "town":     {"username": "zhenji1", "password": "Pass@000000"},
@@ -116,3 +116,19 @@ class Config:
     
     # --- 登录业务特有配置 ---
     MAX_LOGIN_RETRIES = 10     # 验证码识别错误时的自动重试最大次数
+
+    @classmethod
+    def get_captcha_length(cls):
+        """
+        获取当前环境的验证码位数
+        local 环境为 5 位，test 环境为 4 位
+        """
+        return 5 if cls.ENV_TYPE == "local" else 4
+
+    @classmethod
+    def needs_portal_navigation(cls):
+        """
+        判断当前环境登录后是否需要经过门户首页跳转
+        目前 local 和 test 环境均需要经过门户首页
+        """
+        return True
