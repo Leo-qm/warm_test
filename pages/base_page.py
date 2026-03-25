@@ -65,7 +65,7 @@ class BasePage:
         return False
 
     def safe_select_by_text(self, selector: str, text: str, label: str = "") -> bool:
-        """根据文本选择下拉项，跳过禁用"""
+        """根据文本选择下拉项，跳过禁用。带重试和等待机制。"""
         try:
             locator = self.page.locator(f"{selector} >> visible=true")
             if locator.count() > 0:
@@ -75,13 +75,31 @@ class BasePage:
                     if label: log("表单填写", f"⏭️ {label} 已禁用，跳过")
                     return True
 
-                target.click()
-                time.sleep(Config.SHORT_WAIT)
-                opt = self.page.locator(f".el-select-dropdown__item:has-text('{text}') >> visible=true")
-                if opt.count() > 0:
-                    opt.first.click()
-                    if label: log("表单填写", f"✅ {label}: {text}")
-                    return True
+                # 最多重试2次（第一次可能下拉面板没弹出）
+                for attempt in range(2):
+                    target.click()
+                    time.sleep(Config.SHORT_WAIT)
+
+                    # 等待下拉面板出现
+                    try:
+                        self.page.wait_for_selector(
+                            ".el-select-dropdown__item >> visible=true",
+                            timeout=3000
+                        )
+                    except:
+                        if label: log("表单填写", f"⚠️ {label}: 第{attempt+1}次点击后下拉面板未出现", "WARN")
+                        continue
+
+                    opt = self.page.locator(f".el-select-dropdown__item:has-text('{text}') >> visible=true")
+                    if opt.count() > 0:
+                        opt.first.click()
+                        time.sleep(Config.SHORT_WAIT)
+                        if label: log("表单填写", f"✅ {label}: {text}")
+                        return True
+                    else:
+                        if label: log("表单填写", f"⚠️ {label}: 未找到 '{text}' 选项（第{attempt+1}次）", "WARN")
+
+                if label: log("表单填写", f"❌ {label}: 重试后仍未选到 '{text}'", "ERROR")
         except Exception as e:
             if label: log_err("表单填写", f"{label} 选择失败", e)
         return False
