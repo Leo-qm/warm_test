@@ -112,4 +112,8 @@ class DataFactory:
         return {
             "applicant_phone": DataFactory.random_phone(),
             "heating_area": str(random.randint(30, 300)),
+            # 基本信息区块
+            "door_number": f"{random.randint(1, 30)}栋{random.randint(101, 2505)}室",
+            "bank_account": "622202" + "".join(random.choices(string.digits, k=13)),
+            "account_holder_name": DataFactory.random_chinese_name(),
         }

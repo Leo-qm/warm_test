@@ -249,7 +249,31 @@ class DeclarationPage(BasePage):
             except:
                 log("设备更新", "  ⚠️ 能源类型选择失败")
         
-        # 6.3 统一上传附件（证明材料）
+        # 6.3 基本信息区块（门牌号、银行卡号、开户人姓名）
+        log("设备更新", ">> [基本信息] 填写空字段", "STEP")
+        if body:
+            body.evaluate("el => el.scrollTop += 600")
+            time.sleep(0.5)
+        
+        if data.get("door_number"):
+            try:
+                self.safe_fill("input[placeholder*='门牌']", data["door_number"], "门牌号")
+            except:
+                log("设备更新", "  ⚠️ 门牌号填写失败")
+        
+        if data.get("bank_account"):
+            try:
+                self.safe_fill("input[placeholder*='银行卡']", data["bank_account"], "银行卡/折账号")
+            except:
+                log("设备更新", "  ⚠️ 银行卡号填写失败")
+        
+        if data.get("account_holder_name"):
+            try:
+                self.safe_fill("input[placeholder*='开户人']", data["account_holder_name"], "开户人姓名")
+            except:
+                log("设备更新", "  ⚠️ 开户人姓名填写失败")
+        
+        # 6.4 统一上传附件（证明材料）
         log("设备更新", ">> [附件] 上传证明材料", "STEP")
         self._upload(body)
         
