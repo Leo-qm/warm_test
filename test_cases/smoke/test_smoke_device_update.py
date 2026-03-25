@@ -10,6 +10,7 @@ from pages.login_page import LoginPage
 from pages.home_page import HomePage
 from pages.declaration_page import DeclarationPage
 from utils.config import Config
+from utils.data_factory import DataFactory
 from utils.logger import log
 
 
@@ -50,11 +51,15 @@ class TestSmokeDeviceUpdate:
         declaration_page = DeclarationPage(page)
         declaration_page.navigate_to_declaration()
 
-        # 3. 创建设备更新申报（使用固定身份证号）
-        log("冒烟测试", f"使用身份证号: {FIXED_ID_CARD} 创建设备更新申报", "STEP")
-        order_id = declaration_page.create_device_update_record(FIXED_ID_CARD)
+        # 3. 生成设备更新表单数据（由 DataFactory 统一管理）
+        update_data = DataFactory.build_device_update_data()
+        log("冒烟测试", f"测试数据: 电话={update_data['applicant_phone']}, 面积={update_data['heating_area']}", "STEP")
 
-        # 4. 验证结果
+        # 4. 创建设备更新申报（使用固定身份证号 + DataFactory 数据）
+        log("冒烟测试", f"使用身份证号: {FIXED_ID_CARD} 创建设备更新申报", "STEP")
+        order_id = declaration_page.create_device_update_record(FIXED_ID_CARD, update_data)
+
+        # 5. 验证结果
         assert order_id, f"❌ 设备更新申报创建失败 (身份证: {FIXED_ID_CARD})"
         log("冒烟测试", f"✅ 设备更新申报创建成功，编号: {order_id}", "OK")
         log("冒烟测试", "========== 设备更新冒烟测试 通过 ==========", "OK")

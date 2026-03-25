@@ -99,3 +99,17 @@ class DataFactory:
             "device_model": f"WS-MOD-{random.randint(100, 999)}",
             "subsidy_amount": str(random.randint(500, 5000)),
         }
+
+    @staticmethod
+    def build_device_update_data() -> dict:
+        """
+        构建设备更新表单所需的补充数据
+        设备更新查询后，原档案信息和部分申请人信息已预填，
+        此方法生成需要手动填写的空字段数据。
+        
+        :return: 设备更新表单补充数据字典
+        """
+        return {
+            "applicant_phone": DataFactory.random_phone(),
+            "heating_area": str(random.randint(30, 300)),
+        }

@@ -194,31 +194,66 @@ class DeclarationPage(BasePage):
             log_err("设备更新", "点击查询按钮失败", e)
             return None
         
-        # 4. 等待查询结果（表单出现，应显示关联的原有设备信息）
-        try:
-            self.page.locator(".section-title:has-text('原有设备信息'), .section-title:has-text('户主信息'), .section-title:has-text('申报类型')").first.wait_for(
-                state="visible", timeout=Config.PAGE_LOAD_TIMEOUT
-            )
-            log("设备更新", "✅ 查询成功，设备更新表单已加载")
-        except:
-            log("设备更新", "❌ 查询身份证号后未能加载表单", "ERROR")
-            return None
+        # 6. 填写必填字段（data 由 DataFactory.build_device_update_data() 提供）
+        log("设备更新", ">>> 开始填写设备更新表单必填字段 <<<", "STEP")
         
-        # 5. 填写需要补充的字段（申报人信息区块）
-        if data:
+        if not data:
+            data = {}
+            log("设备更新", "⚠️ 未传入 data，空字段将无法填写", "WARN")
+        
+        body = self.get_dialog_body()
+        
+        # 6.1 申请人信息区块
+        log("设备更新", ">> [申请人信息] 填写空字段", "STEP")
+        if data.get("applicant_phone"):
             try:
-                # 是否户主
-                if data.get("is_household"):
-                    self.safe_select_by_text("input[placeholder='请选择是否户主']", data["is_household"], "是否户主")
-                # 采暖面积
-                if data.get("heating_area"):
-                    self.safe_fill("input[placeholder*='采暖面积']", str(data["heating_area"]), "采暖面积")
-                # 户籍信息
-                self.safe_select_first("input[placeholder='请输入户籍信息']", "户籍信息")
-            except Exception as e:
-                log("设备更新", f"⚠️ 表单补充填写异常: {e}", "WARN")
+                phone_input = self.page.locator("input[placeholder='请输入申报人联系电话']").first
+                if phone_input.is_visible(timeout=2000):
+                    val = phone_input.input_value()
+                    if not val or not val.strip():
+                        self.safe_fill("input[placeholder='请输入申报人联系电话']", data["applicant_phone"], "申报人联系电话")
+                    else:
+                        log("设备更新", f"  申报人联系电话已有值: {val}, 跳过")
+            except:
+                log("设备更新", "  ⚠️ 未找到申报人联系电话字段")
         
-        # 6. 保存并上报
+        if data.get("heating_area"):
+            try:
+                area_input = self.page.locator("input[placeholder*='采暖面积']").first
+                if area_input.is_visible(timeout=2000):
+                    val = area_input.input_value()
+                    if not val or not val.strip():
+                        self.safe_fill("input[placeholder*='采暖面积']", str(data["heating_area"]), "采暖面积")
+                    else:
+                        log("设备更新", f"  采暖面积已有值: {val}, 跳过")
+            except:
+                log("设备更新", "  ⚠️ 未找到采暖面积字段")
+        
+        # 6.2 申报类型区块 — 能源类型（下拉）
+        log("设备更新", ">> [申报类型] 选择能源类型", "STEP")
+        if body:
+            body.evaluate("el => el.scrollTop += 400")
+            time.sleep(0.5)
+        try:
+            self.safe_select_first("label:has-text('能源类型') + div input", "能源类型")
+        except:
+            log("设备更新", "  ⚠️ 能源类型选择异常，尝试备用方式")
+            try:
+                energy_input = self.page.locator("input[placeholder*='能源类型']").first
+                if energy_input.is_visible(timeout=2000):
+                    energy_input.click()
+                    time.sleep(Config.SHORT_WAIT)
+                    self.page.locator(".el-select-dropdown__item").first.click()
+                    time.sleep(Config.SHORT_WAIT)
+                    log("设备更新", "  ✅ 能源类型已选择(备用方式)")
+            except:
+                log("设备更新", "  ⚠️ 能源类型选择失败")
+        
+        # 6.3 统一上传附件（证明材料）
+        log("设备更新", ">> [附件] 上传证明材料", "STEP")
+        self._upload(body)
+        
+        # 7. 保存并上报
         return self._save_form()
 
     def search_record(self, order_id):
