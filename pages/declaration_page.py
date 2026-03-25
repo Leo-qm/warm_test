@@ -27,12 +27,80 @@ class DeclarationPage(BasePage):
         log("导航", "✅ 已进入新增申报管理页面", "OK")
 
     def create_record(self, data):
-        """[Create] 点击添加并填写全表单"""
+        """[Create] 点击添加并填写全表单（设备新增）"""
         log("业务步骤", "执行 [新增] 记录流程", "STEP")
         self.page.click("button:has-text('添加')")
         self.page.click(".declaration-type-dialog .type-button:has-text('设备新增')")
         self.page.locator(".section-title:has-text('户主信息')").first.wait_for(state="visible", timeout=Config.PAGE_LOAD_TIMEOUT)
         self._fill_form_content(data)
+        return self._save_form()
+
+    def create_device_update_record(self, id_card, data=None):
+        """
+        [Create] 设备更新：输入身份证号查询已有设备 → 填写更新表单 → 保存并上报
+        
+        :param id_card: 已审核通过的设备新增记录的申报人身份证号
+        :param data: 可选的额外表单数据（如需覆盖预填值）
+        :return: 系统生成的申报编号，失败返回 None
+        """
+        log("业务步骤", f"执行 [设备更新] 记录流程 (身份证: {id_card})", "STEP")
+        
+        # 1. 点击添加 → 选择设备更新
+        self.page.click("button:has-text('添加')")
+        time.sleep(Config.SHORT_WAIT)
+        self.page.click(".declaration-type-dialog .type-button:has-text('设备更新')")
+        time.sleep(Config.MEDIUM_WAIT)
+        log("设备更新", "✅ 已选择 [设备更新] 类型")
+        
+        # 2. 在弹窗中输入身份证号
+        try:
+            dialog = self.page.locator(".el-dialog__body").first
+            id_input = dialog.locator("input[placeholder*='身份证']").first
+            if id_input.count() == 0:
+                # 兜底：通过 label 定位
+                id_input = dialog.locator(".el-form-item").filter(has_text="身份证").locator(".el-input__inner").first
+            id_input.fill(id_card)
+            time.sleep(Config.SHORT_WAIT)
+            log("设备更新", f"✅ 已填入身份证号: {id_card}")
+        except Exception as e:
+            log_err("设备更新", "填写身份证号失败", e)
+            return None
+        
+        # 3. 点击查询按钮
+        try:
+            query_btn = dialog.locator("button:has-text('查询'), button:has-text('搜索')").first
+            query_btn.click()
+            time.sleep(Config.LONG_WAIT)
+            log("设备更新", "✅ 已点击查询按钮")
+        except Exception as e:
+            log_err("设备更新", "点击查询按钮失败", e)
+            return None
+        
+        # 4. 等待查询结果（表单出现，应显示关联的原有设备信息）
+        try:
+            self.page.locator(".section-title:has-text('原有设备信息'), .section-title:has-text('户主信息'), .section-title:has-text('申报类型')").first.wait_for(
+                state="visible", timeout=Config.PAGE_LOAD_TIMEOUT
+            )
+            log("设备更新", "✅ 查询成功，设备更新表单已加载")
+        except:
+            log("设备更新", "❌ 查询身份证号后未能加载表单", "ERROR")
+            return None
+        
+        # 5. 填写需要补充的字段（申报人信息区块）
+        if data:
+            try:
+                # 是否户主
+                if data.get("is_household"):
+                    self.safe_select_by_text("input[placeholder='请选择是否户主']", data["is_household"], "是否户主")
+                # 采暖面积
+                if data.get("heating_area"):
+                    self.safe_fill("input[placeholder*='采暖面积']", str(data["heating_area"]), "采暖面积")
+                # 户籍信息
+                self.safe_select_first("input[placeholder='请输入户籍信息']", "户籍信息")
+            except Exception as e:
+                log("设备更新", f"⚠️ 表单补充填写异常: {e}", "WARN")
+        
+        # 6. 保存并上报
         return self._save_form()
 
     def search_record(self, order_id):

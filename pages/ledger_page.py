@@ -62,6 +62,67 @@ class LedgerPage(BasePage):
         log("查询", f"❌ 台账中未找到记录: {order_id}", "ERROR")
         return False
 
+    def get_applicant_id_card(self, order_id):
+        """从台账详情弹窗中获取申报人身份证号"""
+        log("业务步骤", f"执行 [获取申报人身份证号] 编号: {order_id}", "STEP")
+        if not self.search_by_order_id(order_id):
+            return None
+
+        try:
+            # 点击查看按钮打开详情弹窗
+            row = self.page.locator("table.el-table__body tr").first
+            view_btn = row.locator("button:has-text('查看')")
+            if view_btn.count() > 0:
+                view_btn.first.click()
+            else:
+                # 也可能是蓝色链接"查看"
+                row.locator("text=查看").first.click()
+            time.sleep(Config.LONG_WAIT)
+
+            # 从详情弹窗中读取"申报人身份证号"
+            id_card = None
+            dialog = self.page.locator(".el-dialog__body").first
+            try:
+                # 尝试精确查找"申报人身份证号"字段
+                fi = dialog.locator(".el-form-item").filter(has_text="申报人身份证号")
+                inp = fi.locator(".el-input__inner").first
+                id_card = inp.input_value(timeout=3000)
+            except:
+                pass
+
+            # 兜底：读取"身份证号"字段（可能标签不同）
+            if not id_card:
+                try:
+                    fi = dialog.locator(".el-form-item").filter(has_text="身份证号")
+                    inp = fi.locator(".el-input__inner").first
+                    id_card = inp.input_value(timeout=3000)
+                except:
+                    pass
+
+            # 关闭详情弹窗
+            try:
+                close_btn = self.page.locator(
+                    "button:has-text('关 闭'), button:has-text('关闭'), "
+                    "button:has-text('取 消'), button:has-text('取消')"
+                ).first
+                if close_btn.is_visible(timeout=2000):
+                    close_btn.click()
+                else:
+                    self.page.keyboard.press("Escape")
+            except:
+                self.page.keyboard.press("Escape")
+            time.sleep(Config.MEDIUM_WAIT)
+
+            if id_card and id_card.strip():
+                log("台账详情", f"✅ 获取到申报人身份证号: {id_card.strip()}", "OK")
+                return id_card.strip()
+            else:
+                log("台账详情", "❌ 未能读取到申报人身份证号", "ERROR")
+                return None
+        except Exception as e:
+            log_err("台账详情", "获取身份证号异常", e)
+            return None
+
     # ==================== 导出 ====================
     def export_ledger(self):
         """执行导出台账操作"""
