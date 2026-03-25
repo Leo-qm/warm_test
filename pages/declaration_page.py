@@ -52,97 +52,116 @@ class DeclarationPage(BasePage):
         time.sleep(Config.LONG_WAIT)  # 等待设备更新弹窗加载
         log("设备更新", "✅ 已选择 [设备更新] 类型")
         
-        # 2. 等待"设备更新申报"弹窗出现，并定位身份证号输入框
-        #    截图DOM结构：弹窗标题"设备更新申报" → 查询区域: [身份证号下拉] [请输入 input] [查询按钮]
+        # 2. 等待"设备更新申报"弹窗出现
+        #    截图DOM结构：弹窗标题"设备更新申报" → 申报资格查询区域:
+        #    所属区[x] 所属镇[x] 所属村[x] 查询[下拉:身份证号] [请输入 input] [查询按钮]
         try:
-            # 等待设备更新弹窗标题出现（区分类型选择弹窗）
+            # 等待设备更新弹窗标题出现
             self.page.locator(".el-dialog__header:has-text('设备更新')").first.wait_for(
                 state="visible", timeout=Config.PAGE_LOAD_TIMEOUT
             )
-            time.sleep(Config.SHORT_WAIT)
+            time.sleep(Config.MEDIUM_WAIT)
             log("设备更新", "✅ 设备更新弹窗已加载")
-            
-            # 定位正确的弹窗（含"设备更新"标题的那个 dialog）
-            dialog = self.page.locator(".el-dialog:has(.el-dialog__header:has-text('设备更新')) .el-dialog__body").first
-            id_input = None
-            
-            # 策略1：找蓝色查询按钮同级的输入框
+        except Exception as e:
+            log_err("设备更新", "设备更新弹窗加载超时", e)
+            return None
+
+        # 3. 选择查询类型下拉为"身份证号"（确保下拉当前值正确）
+        try:
+            # 通过 JS 定位"设备更新"弹窗内、紧接"查询"文字后的下拉选择框
+            self.page.evaluate("""() => {
+                const dialogs = document.querySelectorAll('.el-dialog');
+                for (const dlg of dialogs) {
+                    const header = dlg.querySelector('.el-dialog__header');
+                    if (header && header.textContent.includes('设备更新')) {
+                        const selects = dlg.querySelectorAll('.el-select .el-input__inner');
+                        // 最后一个 select（查询类型下拉，前面是区/镇/村）
+                        const querySelect = selects[selects.length - 1];
+                        if (querySelect) {
+                            querySelect.click();
+                        }
+                        return;
+                    }
+                }
+            }""")
+            time.sleep(Config.SHORT_WAIT)
+            # 在下拉面板中选择"身份证号"
             try:
-                query_btn = dialog.locator("button:has-text('查询')").first
-                if query_btn.is_visible(timeout=2000):
-                    # 查询按钮的父容器内的文本输入框
-                    parent = query_btn.locator("..")  # 按钮的父元素
-                    inp = parent.locator(".. >> input.el-input__inner").first
-                    if not inp.is_visible(timeout=1000):
-                        inp = None
-                    else:
-                        id_input = inp
-                        log("设备更新", "✅ 策略1命中：查询按钮同行输入框")
+                option = self.page.locator(".el-select-dropdown__item:has-text('身份证')").last
+                if option.is_visible(timeout=3000):
+                    option.click()
+                    time.sleep(Config.SHORT_WAIT)
+                    log("设备更新", "✅ 查询类型下拉已选择 [身份证号]")
+                else:
+                    log("设备更新", "⚠️ 下拉面板未出现'身份证'选项，可能已默认选中")
             except:
-                pass
-            
-            # 策略2：通过 placeholder "请输入" 在弹窗内精确查找
-            if not id_input:
-                try:
-                    candidates = dialog.locator("input.el-input__inner[placeholder*='请输入']")
-                    cnt = candidates.count()
-                    log("设备更新", f"策略2：找到 {cnt} 个 placeholder 含'请输入'的 input")
-                    for i in range(cnt):
-                        inp = candidates.nth(i)
-                        if inp.is_visible(timeout=1000) and inp.is_enabled(timeout=1000):
-                            # 排除下拉选择框内的 input（readonly 或 aria-role=combobox）
-                            readonly = inp.get_attribute("readonly")
-                            if readonly is None:
-                                id_input = inp
-                                log("设备更新", f"✅ 策略2命中：第{i+1}个可编辑input")
-                                break
-                except:
-                    pass
-            
-            # 策略3：JS 兜底 — 在所有弹窗内找身份证号查询区域的输入框
-            if not id_input:
-                try:
-                    js_result = self.page.evaluate("""() => {
-                        const dialogs = document.querySelectorAll('.el-dialog__body');
-                        for (const d of dialogs) {
-                            if (!d.offsetParent) continue;  // 跳过隐藏的
-                            const inputs = d.querySelectorAll('input.el-input__inner');
-                            for (const inp of inputs) {
-                                if (inp.offsetParent && !inp.readOnly && !inp.disabled) {
-                                    const ph = inp.placeholder || '';
-                                    if (ph.includes('请输入') || ph.includes('输入')) {
-                                        return true;
-                                    }
+                log("设备更新", "⚠️ 未找到身份证下拉选项，继续使用默认值")
+        except Exception as e:
+            log("设备更新", f"⚠️ 操作查询类型下拉异常: {e}，继续尝试", "WARN")
+
+        # 4. 定位并填写身份证号输入框（紧接在下拉框后面的 "请输入" 输入框）
+        try:
+            # 通过 JS 精确定位：找到设备更新弹窗内、非 readonly/disabled、placeholder 含"请输入"的 input
+            id_input_index = self.page.evaluate("""() => {
+                const dialogs = document.querySelectorAll('.el-dialog');
+                for (const dlg of dialogs) {
+                    const header = dlg.querySelector('.el-dialog__header');
+                    if (header && header.textContent.includes('设备更新')) {
+                        const body = dlg.querySelector('.el-dialog__body');
+                        if (!body) continue;
+                        const allInputs = document.querySelectorAll('input.el-input__inner');
+                        for (let i = 0; i < allInputs.length; i++) {
+                            const inp = allInputs[i];
+                            // 必须在该弹窗体内
+                            if (!body.contains(inp)) continue;
+                            // 必须可见、非只读、非禁用
+                            if (!inp.offsetParent || inp.readOnly || inp.disabled) continue;
+                            const ph = inp.placeholder || '';
+                            if (ph.includes('请输入') || ph === '') {
+                                // 排除 el-select 内部的 input
+                                const parent = inp.closest('.el-select');
+                                if (!parent) {
+                                    return i;  // 返回全局 index
                                 }
                             }
                         }
-                        return false;
-                    }""")
-                    if js_result:
-                        id_input = self.page.locator(".el-dialog__body >> input.el-input__inner[placeholder*='请输入']:not([readonly])").first
-                        if id_input.is_visible(timeout=2000):
-                            log("设备更新", "✅ 策略3命中：JS兜底定位")
-                        else:
-                            id_input = None
-                except:
-                    pass
+                    }
+                }
+                return -1;
+            }""")
             
-            if not id_input:
-                log("设备更新", "❌ 所有策略均未找到身份证号输入框", "ERROR")
+            if id_input_index >= 0:
+                id_input = self.page.locator("input.el-input__inner").nth(id_input_index)
+                id_input.click()
+                id_input.fill("")
+                id_input.type(id_card, delay=50)
+                time.sleep(Config.SHORT_WAIT)
+                log("设备更新", f"✅ 已填入身份证号: {id_card}")
+            else:
+                log("设备更新", "❌ JS未能定位到身份证号输入框", "ERROR")
                 return None
-
-            id_input.click()
-            id_input.fill(id_card)
-            time.sleep(Config.SHORT_WAIT)
-            log("设备更新", f"✅ 已填入身份证号: {id_card}")
         except Exception as e:
             log_err("设备更新", "填写身份证号失败", e)
             return None
         
-        # 3. 点击查询按钮
+        # 5. 点击蓝色查询按钮
         try:
-            query_btn = dialog.locator("button:has-text('查询'), button:has-text('搜索')").first
-            query_btn.click()
+            # 精确定位设备更新弹窗内的查询按钮
+            self.page.evaluate("""() => {
+                const dialogs = document.querySelectorAll('.el-dialog');
+                for (const dlg of dialogs) {
+                    const header = dlg.querySelector('.el-dialog__header');
+                    if (header && header.textContent.includes('设备更新')) {
+                        const btns = dlg.querySelectorAll('button');
+                        for (const btn of btns) {
+                            if (btn.textContent.trim() === '查询' || btn.textContent.trim().includes('查询')) {
+                                btn.click();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }""")
             time.sleep(Config.LONG_WAIT)
             log("设备更新", "✅ 已点击查询按钮")
         except Exception as e:
