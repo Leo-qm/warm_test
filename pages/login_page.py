@@ -187,19 +187,19 @@ class LoginPage(BasePage):
             return
 
         try:
-            # 策略 1: 点击验证码图片（最快，通用）
+            # 策略 1: 点击"换一个"等文字 (test 环境专属/优先)
+            refresh_text = self.page.locator("text=换一个, text=看不清, text=刷新, .captcha-refresh").first
+            if refresh_text.is_visible(timeout=1000):
+                log("登录", "尝试通过点击 [换一个] 文字刷新...", "INFO")
+                refresh_text.click()
+                time.sleep(1.5)
+                return
+
+            # 策略 2: 点击验证码图片（local 环境常用）
             captcha_img = self._get_captcha_img_locator()
             if captcha_img.is_visible(timeout=1500):
                 log("登录", "尝试通过 [点击验证码图片] 刷新...", "INFO")
                 captcha_img.click()
-                time.sleep(1.5)
-                return
-
-            # 策略 2: 点击"换一个"等文字 (test 环境)
-            refresh_text = self.page.locator("text=换一个, text=看不清, text=刷新, .captcha-refresh").first
-            if refresh_text.is_visible(timeout=1500):
-                log("登录", "尝试通过点击 [换一个] 文字刷新...", "INFO")
-                refresh_text.click()
                 time.sleep(1.5)
                 return
 

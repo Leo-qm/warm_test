@@ -115,7 +115,7 @@ class Config:
     LOG_FILE = os.path.join(_ROOT_DIR, "logs", "test_playwright.log") # 日志文件全路径
     
     # --- 登录业务特有配置 ---
-    MAX_LOGIN_RETRIES = 10     # 验证码识别错误时的自动重试最大次数
+    MAX_LOGIN_RETRIES = 30     # 针对 test 环境高难度验证码，大幅提升重试次数上限
 
     @classmethod
     def get_captcha_length(cls):
