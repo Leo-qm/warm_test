@@ -195,6 +195,7 @@ class DeclarationPage(BasePage):
             return None
         
         # 6. 填写必填字段（data 由 DataFactory.build_device_update_data() 提供）
+        #    关键：所有填写操作必须限定在可见弹窗 DOM 内，不能用全局选择器
         log("设备更新", ">>> 开始填写设备更新表单必填字段 <<<", "STEP")
         
         if not data:
@@ -203,31 +204,47 @@ class DeclarationPage(BasePage):
         
         body = self.get_dialog_body()
         
+        # 定义弹窗内精确填写方法（避免全局选择器匹配到背景页元素）
+        def fill_in_dialog(placeholder_keyword, value, label):
+            """在可见的设备更新弹窗内，通过 placeholder 定位 input 并填值"""
+            filled = self.page.evaluate("""(args) => {
+                const [keyword, val] = args;
+                const wrappers = document.querySelectorAll('.el-dialog__wrapper');
+                for (const wrapper of wrappers) {
+                    if (wrapper.style.display === 'none') continue;
+                    const header = wrapper.querySelector('.el-dialog__header');
+                    if (!header || !header.textContent.includes('设备更新')) continue;
+                    const body = wrapper.querySelector('.el-dialog__body');
+                    if (!body) continue;
+                    const inputs = body.querySelectorAll('input');
+                    for (const inp of inputs) {
+                        if (inp.readOnly || inp.disabled) continue;
+                        const ph = inp.placeholder || '';
+                        if (ph.includes(keyword)) {
+                            // 先聚焦，再设值，最后触发 input 事件让 Vue 识别
+                            inp.focus();
+                            inp.value = val;
+                            inp.dispatchEvent(new Event('input', {bubbles: true}));
+                            inp.dispatchEvent(new Event('change', {bubbles: true}));
+                            return true;
+                        }
+                    }
+                    return false;  // 弹窗找到了但没匹配到字段
+                }
+                return false;
+            }""", [placeholder_keyword, value])
+            if filled:
+                log("设备更新", f"  ✅ {label}: {value}")
+            else:
+                log("设备更新", f"  ❌ {label}: 未在弹窗内找到 '{placeholder_keyword}' 输入框", "ERROR")
+            return filled
+        
         # 6.1 申请人信息区块
         log("设备更新", ">> [申请人信息] 填写空字段", "STEP")
         if data.get("applicant_phone"):
-            try:
-                phone_input = self.page.locator("input[placeholder='请输入申报人联系电话']").first
-                if phone_input.is_visible(timeout=2000):
-                    val = phone_input.input_value()
-                    if not val or not val.strip():
-                        self.safe_fill("input[placeholder='请输入申报人联系电话']", data["applicant_phone"], "申报人联系电话")
-                    else:
-                        log("设备更新", f"  申报人联系电话已有值: {val}, 跳过")
-            except:
-                log("设备更新", "  ⚠️ 未找到申报人联系电话字段")
-        
+            fill_in_dialog("申报人联系电话", data["applicant_phone"], "申报人联系电话")
         if data.get("heating_area"):
-            try:
-                area_input = self.page.locator("input[placeholder*='采暖面积']").first
-                if area_input.is_visible(timeout=2000):
-                    val = area_input.input_value()
-                    if not val or not val.strip():
-                        self.safe_fill("input[placeholder*='采暖面积']", str(data["heating_area"]), "采暖面积")
-                    else:
-                        log("设备更新", f"  采暖面积已有值: {val}, 跳过")
-            except:
-                log("设备更新", "  ⚠️ 未找到采暖面积字段")
+            fill_in_dialog("采暖面积", str(data["heating_area"]), "采暖面积")
         
         # 6.2 申报类型区块 — 能源类型（下拉）
         log("设备更新", ">> [申报类型] 选择能源类型", "STEP")
@@ -235,43 +252,55 @@ class DeclarationPage(BasePage):
             body.evaluate("el => el.scrollTop += 400")
             time.sleep(0.5)
         try:
-            self.safe_select_first("label:has-text('能源类型') + div input", "能源类型")
-        except:
-            log("设备更新", "  ⚠️ 能源类型选择异常，尝试备用方式")
-            try:
-                energy_input = self.page.locator("input[placeholder*='能源类型']").first
-                if energy_input.is_visible(timeout=2000):
-                    energy_input.click()
+            # 能源类型是下拉选择，需要用 Playwright 点击交互
+            # 但要用 JS 先定位弹窗内的那个 select input
+            clicked = self.page.evaluate("""() => {
+                const wrappers = document.querySelectorAll('.el-dialog__wrapper');
+                for (const wrapper of wrappers) {
+                    if (wrapper.style.display === 'none') continue;
+                    const header = wrapper.querySelector('.el-dialog__header');
+                    if (!header || !header.textContent.includes('设备更新')) continue;
+                    const body = wrapper.querySelector('.el-dialog__body');
+                    if (!body) continue;
+                    const inputs = body.querySelectorAll('input');
+                    for (const inp of inputs) {
+                        const ph = inp.placeholder || '';
+                        if (ph.includes('能源类型')) {
+                            inp.click();
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }""")
+            if clicked:
+                time.sleep(Config.SHORT_WAIT)
+                item = self.page.locator(".el-select-dropdown__item >> visible=true")
+                if item.count() > 0:
+                    item.nth(0).click()
                     time.sleep(Config.SHORT_WAIT)
-                    self.page.locator(".el-select-dropdown__item").first.click()
-                    time.sleep(Config.SHORT_WAIT)
-                    log("设备更新", "  ✅ 能源类型已选择(备用方式)")
-            except:
-                log("设备更新", "  ⚠️ 能源类型选择失败")
+                    log("设备更新", "  ✅ 能源类型: 已选第一项")
+                else:
+                    log("设备更新", "  ⚠️ 能源类型下拉面板无选项")
+            else:
+                log("设备更新", "  ⚠️ 未在弹窗内找到能源类型输入框")
+        except Exception as e:
+            log("设备更新", f"  ⚠️ 能源类型选择异常: {e}")
         
-        # 6.3 基本信息区块（门牌号、银行卡号、开户人姓名）
+        # 6.3 基本信息区块（用户编号、门牌号、银行卡号、开户人姓名）
         log("设备更新", ">> [基本信息] 填写空字段", "STEP")
         if body:
             body.evaluate("el => el.scrollTop += 600")
             time.sleep(0.5)
         
+        if data.get("user_number"):
+            fill_in_dialog("用户编号", data["user_number"], "用户编号")
         if data.get("door_number"):
-            try:
-                self.safe_fill("input[placeholder*='门牌']", data["door_number"], "门牌号")
-            except:
-                log("设备更新", "  ⚠️ 门牌号填写失败")
-        
+            fill_in_dialog("门牌", data["door_number"], "门牌号")
         if data.get("bank_account"):
-            try:
-                self.safe_fill("input[placeholder*='银行卡']", data["bank_account"], "银行卡/折账号")
-            except:
-                log("设备更新", "  ⚠️ 银行卡号填写失败")
-        
+            fill_in_dialog("银行卡", data["bank_account"], "银行卡/折账号")
         if data.get("account_holder_name"):
-            try:
-                self.safe_fill("input[placeholder*='开户人']", data["account_holder_name"], "开户人姓名")
-            except:
-                log("设备更新", "  ⚠️ 开户人姓名填写失败")
+            fill_in_dialog("开户人", data["account_holder_name"], "开户人姓名")
         
         # 6.4 统一上传附件（证明材料）
         log("设备更新", ">> [附件] 上传证明材料", "STEP")
