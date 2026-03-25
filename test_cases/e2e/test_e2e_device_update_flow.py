@@ -98,6 +98,45 @@ class TestDeviceUpdateFlow:
             assert result, f"❌ 前置条件失败：设备新增 [{original_order_id}] 审核失败"
             log("E2E", f"✅ 设备新增 [{original_order_id}] 审核通过，数据已入台账", "OK")
 
+        with allure.step("前置 - 步骤3: 村级用户发起设备新增补贴申报"):
+            log("E2E", ">>> [前置-步骤3] 村级用户：发起设备新增补贴申报 <<<", "STEP")
+            role_mgr.switch_to("village")
+
+            ledger_page = LedgerPage(page)
+            ledger_page.navigate_to_ledger()
+
+            started = ledger_page.start_subsidy_declaration(original_order_id)
+            assert started, f"❌ 前置条件失败：未能发起 [{original_order_id}] 的补贴申报"
+            log("E2E", f"✅ 已进入 [{original_order_id}] 的补贴申报表单", "OK")
+
+        with allure.step("前置 - 步骤3: 填写并提交补贴表单"):
+            log("E2E", ">>> [前置-步骤3] 填写设备新增补贴申报表单 <<<", "STEP")
+
+            subsidy_data = {
+                "device_brand": test_data["device_brand"],
+                "device_model": test_data["device_model"],
+                "purchase_amount": test_data["purchase_amount"],
+                "subsidy_amount": test_data["subsidy_amount"],
+                "installer_name": test_data["installer_name"],
+                "installer_phone": test_data["installer_phone"],
+                "invoice_number": test_data["invoice_number"],
+                "special_subsidy": "否",
+            }
+            submitted = ledger_page.fill_subsidy_declaration(subsidy_data)
+            assert submitted, "❌ 前置条件失败：设备新增补贴申报提交失败"
+            log("E2E", "✅ 设备新增补贴申报已提交", "OK")
+
+        with allure.step("前置 - 步骤4: 镇级用户审核设备新增补贴"):
+            log("E2E", ">>> [前置-步骤4] 镇级用户：审核设备新增补贴 <<<", "STEP")
+            role_mgr.switch_to("town")
+
+            audit_page = AuditPage(page)
+            audit_page.navigate_to_audit()
+
+            result = audit_page.perform_approve(original_order_id, comment="自动化测试：设备新增补贴审核通过")
+            assert result, f"❌ 前置条件失败：设备新增补贴 [{original_order_id}] 审核失败"
+            log("E2E", f"✅ 设备新增补贴 [{original_order_id}] 审核通过，前置流程完成", "OK")
+
         # ==================== 步骤0：获取申报人身份证号 ====================
 
         with allure.step("步骤0: 从台账获取原申报人身份证号"):
