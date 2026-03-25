@@ -169,6 +169,20 @@ class LedgerPage(BasePage):
             # 8. 安装人员联系电话
             self.fill_input_by_label("安装人员联系电话", d.get("installer_phone", "13800000000"))
 
+            # === 特殊补贴信息 ===
+            # 默认可能选了"是"，需要选"否"来跳过额外的特殊补贴申报类型和证明材料上传
+            try:
+                no_radio = self.page.locator("label.el-radio").filter(has_text="否")
+                # 找属于"是否申报特殊补贴"的"否"选项
+                special_section = self.page.locator(".el-form-item").filter(has_text="是否申报特殊补贴")
+                no_btn = special_section.locator("label.el-radio").filter(has_text="否").first
+                if no_btn.count() > 0 and no_btn.is_visible(timeout=2000):
+                    no_btn.click(force=True)
+                    time.sleep(0.5)
+                    log("表单填写", "✅ 特殊补贴信息: 已选 [否]")
+            except:
+                log("表单填写", "⚠️ 特殊补贴信息: 未找到'否'选项", "WARN")
+
             # === 附件上传 ===
             try:
                 test_img = os.path.join(os.getcwd(), "test_upload.png")
@@ -184,25 +198,17 @@ class LedgerPage(BasePage):
             except:
                 pass
 
-            # === 滚动到底部 ===
-            try:
-                self.page.evaluate("""() => {
-                    document.querySelectorAll('.el-dialog__body').forEach(b => {
-                        if (b.offsetParent) b.scrollTop = b.scrollHeight;
-                    });
-                }""")
-                time.sleep(0.5)
-            except:
-                pass
 
-            # === 提交前校验：检查所有必填字段是否已填写 ===
+            # === 提交前校验：检查弹窗内所有必填字段是否已填写 ===
             empty_fields = []
             check_fields = ["购置金额", "设备厂家", "设备类型", "设备型号",
                             "能耗级别", "质保日期", "发票号码",
                             "安装日期", "安装人员", "安装人员联系电话"]
+            # 限定在弹窗内搜索（避免匹配主页面的空字段）
+            dialog = self.page.locator(".el-dialog__body").first
             for field_name in check_fields:
                 try:
-                    fi = self.page.locator(".el-form-item").filter(has_text=field_name)
+                    fi = dialog.locator(".el-form-item").filter(has_text=field_name)
                     inp = fi.locator(".el-input__inner").first
                     val = inp.input_value(timeout=2000)
                     if not val or val.strip() == "":
@@ -215,37 +221,72 @@ class LedgerPage(BasePage):
             else:
                 log("补贴申报", "✅ 所有必填字段已填写", "OK")
 
-            # === 点击"保存并提交" ===
-            submit_btn = self.page.locator("button:has-text('保存并提交')").first
+            # === 滚动弹窗到底部确保"保存并提交"按钮可见 ===
+            try:
+                self.page.evaluate("""() => {
+                    document.querySelectorAll('.el-dialog__body').forEach(b => {
+                        if (b.offsetParent) b.scrollTop = b.scrollHeight;
+                    });
+                }""")
+                time.sleep(0.5)
+            except:
+                pass
+
+            # === 点击弹窗内的"保存并提交" ===
+            submit_btn = self.page.locator(".el-dialog__wrapper:visible button:has-text('保存并提交')").first
             try:
                 submit_btn.scroll_into_view_if_needed()
             except:
                 pass
             submit_btn.click(force=True)
-            time.sleep(Config.MEDIUM_WAIT)
+            time.sleep(Config.LONG_WAIT)
             log("补贴申报", "已点击 [保存并提交]")
 
-            # 二次确认
+            # 二次确认弹窗
             try:
                 confirm = self.page.locator(
                     ".el-message-box__btns button:has-text('确定')"
                 ).first
                 if confirm.is_visible(timeout=3000):
                     confirm.click()
-                    time.sleep(Config.MEDIUM_WAIT)
+                    time.sleep(Config.LONG_WAIT)
             except:
                 pass
 
-            # 等待成功提示
+            # === 检测错误提示（必填项未填时系统会弹出红色提示或表单红框） ===
+            error_msg = self.page.locator(".el-message--error, .el-message-box__message")
             try:
-                self.page.wait_for_selector(
-                    ".el-message--success, text=提交成功, text=操作成功, text=上报成功",
-                    timeout=8000
-                )
+                if error_msg.first.is_visible(timeout=2000):
+                    err_text = error_msg.first.inner_text()
+                    log("补贴申报", f"❌ 提交失败，系统提示: {err_text}", "ERROR")
+                    # 尝试关闭错误弹窗
+                    try:
+                        self.page.locator(".el-message-box__btns button").first.click()
+                    except:
+                        pass
+                    return False
             except:
                 pass
 
-            log("补贴申报", "✅ 补贴申报表单填写并提交成功", "OK")
+            # === 检测成功提示 ===
+            try:
+                success = self.page.locator(".el-message--success").first
+                if success.is_visible(timeout=5000):
+                    log("补贴申报", "✅ 补贴申报表单填写并提交成功", "OK")
+                    return True
+            except:
+                pass
+
+            # 弹窗是否已关闭（提交成功后弹窗会自动关闭）
+            try:
+                dialog = self.page.locator(".el-dialog__wrapper[style*='display']")
+                if dialog.count() == 0 or not dialog.first.is_visible(timeout=3000):
+                    log("补贴申报", "✅ 补贴申报表单填写并提交成功（弹窗已关闭）", "OK")
+                    return True
+            except:
+                pass
+
+            log("补贴申报", "⚠️ 提交状态不确定，未检测到成功或错误提示", "WARN")
             return True
         except Exception as e:
             log_err("补贴申报", "表单填写或提交异常", e)
