@@ -220,8 +220,9 @@ class LedgerPage(BasePage):
                 pass
 
 
-            # === 提交前校验：检查弹窗内所有必填字段是否已填写 ===
+            # === 提交前校验：检查弹窗内所有必填字段是否已填写，并收集实际值 ===
             empty_fields = []
+            actual_values = {}  # 收集实际表单值用于日志
             check_fields = ["购置金额", "设备厂家", "设备类型", "设备型号",
                             "能耗级别", "质保日期", "发票号码",
                             "安装日期", "安装人员", "安装人员联系电话"]
@@ -234,8 +235,20 @@ class LedgerPage(BasePage):
                     val = inp.input_value(timeout=2000)
                     if not val or val.strip() == "":
                         empty_fields.append(field_name)
+                    else:
+                        actual_values[field_name] = val.strip()
                 except:
                     empty_fields.append(field_name)
+
+            # 额外读取"预计补贴"（只读自动计算字段）
+            try:
+                subsidy_fi = dialog.locator(".el-form-item").filter(has_text="预计补贴")
+                subsidy_inp = subsidy_fi.locator(".el-input__inner").first
+                subsidy_val = subsidy_inp.input_value(timeout=2000)
+                if subsidy_val and subsidy_val.strip():
+                    actual_values["预计补贴"] = subsidy_val.strip()
+            except:
+                pass
 
             if empty_fields:
                 log("补贴申报", f"⚠️ 以下必填字段未填写: {', '.join(empty_fields)}", "WARN")
@@ -294,7 +307,7 @@ class LedgerPage(BasePage):
                 success = self.page.locator(".el-message--success").first
                 if success.is_visible(timeout=5000):
                     log("补贴申报", "✅ 补贴申报表单填写并提交成功", "OK")
-                    return True
+                    return actual_values or True
             except:
                 pass
 
@@ -303,15 +316,15 @@ class LedgerPage(BasePage):
                 dialog = self.page.locator(".el-dialog__wrapper[style*='display']")
                 if dialog.count() == 0 or not dialog.first.is_visible(timeout=3000):
                     log("补贴申报", "✅ 补贴申报表单填写并提交成功（弹窗已关闭）", "OK")
-                    return True
+                    return actual_values or True
             except:
                 pass
 
             log("补贴申报", "⚠️ 提交状态不确定，未检测到成功或错误提示", "WARN")
-            return True
+            return actual_values or True
         except Exception as e:
             log_err("补贴申报", "表单填写或提交异常", e)
-            return False
+            return None
 
     # ==================== 弹窗内操作工具方法 ====================
     def _select_dropdown(self, label_text):

@@ -151,6 +151,8 @@ class TestFullBusinessFlow:
             }
             submitted = ledger_page.fill_subsidy_declaration(subsidy_data)
             assert submitted, f"❌ 补贴申报表单提交失败"
+            # 提取表单实际填写值（dict 或 True）
+            form_result = submitted if isinstance(submitted, dict) else {}
             log("E2E", f"✅ 补贴申报表单已提交（特殊补贴={special_subsidy}），等待镇级审核", "OK")
 
         with allure.step("第二阶段 - 步骤3: 镇级用户审核补贴申报"):
@@ -167,8 +169,12 @@ class TestFullBusinessFlow:
             log("E2E", f"✅ 第二阶段完成：补贴申报 [{order_id}] 已审核通过", "OK")
 
         # ==================== 流程结束 ====================
+        device_info = f"{form_result.get('设备厂家', '-')}-{form_result.get('设备类型', '-')}-{form_result.get('设备型号', '-')}"
         log("E2E", "=" * 60, "OK")
         log("E2E", f"  🎉 两阶段全链路测试通过！申报编号: {order_id}", "OK")
         log("E2E", f"  户主: {test_data['household_name']}", "OK")
+        log("E2E", f"  设备: {device_info}", "OK")
+        log("E2E", f"  购置金额: ¥{form_result.get('购置金额', '-')}", "OK")
+        log("E2E", f"  预计补贴: ¥{form_result.get('预计补贴', '-')}", "OK")
         log("E2E", f"  特殊补贴: {special_subsidy}", "OK")
         log("E2E", "=" * 60, "OK")
