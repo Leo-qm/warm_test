@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-E2E 全链路业务流程测试
+E2E 设备新增全链路业务流程测试
 覆盖两阶段完整业务闭环：
-  第一阶段：村级用户资格申报 → 镇级用户审核通过 → 数据进入台账
+  第一阶段：村级用户设备新增资格申报 → 镇级用户审核通过 → 数据进入台账
   第二阶段：村级用户补贴申报 → 镇级用户审核补贴
 """
 import pytest
@@ -56,22 +56,22 @@ class RoleManager:
 
 
 @pytest.mark.e2e
-@allure.feature("全链路业务流程")
-@allure.story("资格申报→审核→补贴申报→审核 两阶段完整闭环")
-class TestFullBusinessFlow:
+@allure.feature("设备新增流程")
+@allure.story("设备新增资格申报→审核→补贴申报→审核 完整闭环")
+class TestDeviceAddFlow:
     """
-    E2E 两阶段全链路测试
+    E2E 设备新增全链路测试
     模拟真实业务：
-      村级账号填报 → 镇级账号审核 → 村级账号补贴申报 → 镇级账号审核补贴
+      村级账号设备新增申报 → 镇级账号审核 → 村级账号补贴申报 → 镇级账号审核补贴
     参数化：特殊补贴"是/否"分别验证
     """
 
-    @allure.title("两阶段全链路业务闭环测试 (特殊补贴={special_subsidy})")
+    @allure.title("设备新增全链路测试 (特殊补贴={special_subsidy})")
     @pytest.mark.parametrize("special_subsidy", ["否", "是"])
-    def test_full_two_phase_flow(self, page, ocr_engine, special_subsidy):
+    def test_device_add_flow(self, page, ocr_engine, special_subsidy):
         """
-        完整的两阶段业务闭环:
-        第一阶段: 村级申报 → 村级上报 → 镇级审核
+        设备新增完整业务闭环:
+        第一阶段: 村级设备新增申报 → 镇级审核
         第二阶段: 村级补贴申报 → 镇级审核补贴
         参数化: special_subsidy 控制特殊补贴选择（是=填额外字段，否=跳过）
         """
@@ -81,15 +81,15 @@ class TestFullBusinessFlow:
         order_id = None  # 全流程共享的申报编号
 
         log("E2E", "=" * 60, "STEP")
-        log("E2E", "  两阶段全链路业务流程测试 启动", "STEP")
+        log("E2E", "  设备新增全链路流程测试 启动", "STEP")
         log("E2E", f"  测试数据: 户主={test_data['household_name']}", "STEP")
         log("E2E", f"  特殊补贴: {special_subsidy}", "STEP")
         log("E2E", "=" * 60, "STEP")
 
         # ==================== 第一阶段：资格申报与审核 ====================
 
-        with allure.step("第一阶段 - 步骤1: 村级用户创建资格申报"):
-            log("E2E", ">>> [阶段1-步骤1] 村级用户：创建资格申报 <<<", "STEP")
+        with allure.step("第一阶段 - 步骤1: 村级用户创建设备新增申报"):
+            log("E2E", ">>> [阶段1-步骤1] 村级用户：创建设备新增申报 <<<", "STEP")
             role_mgr.switch_to("village")
 
             # 导航到申报管理页
@@ -98,8 +98,8 @@ class TestFullBusinessFlow:
 
             # 创建申报记录
             order_id = declaration_page.create_record(test_data)
-            assert order_id, "❌ 新增申报记录失败：未能抓取到系统生成的申报编号"
-            log("E2E", f"✅ 资格申报创建成功，申报编号: {order_id}", "OK")
+            assert order_id, "❌ 设备新增申报创建失败：未能抓取到系统生成的申报编号"
+            log("E2E", f"✅ 设备新增申报创建成功，申报编号: {order_id}", "OK")
 
         with allure.step("第一阶段 - 步骤2: 验证申报记录已生成"):
             log("E2E", ">>> [阶段1-步骤2] 验证申报记录存在 <<<", "STEP")
@@ -107,8 +107,8 @@ class TestFullBusinessFlow:
             assert found, f"❌ 申报记录 [{order_id}] 创建后未在列表中找到"
             log("E2E", f"✅ 记录验证通过: {order_id}", "OK")
 
-        with allure.step("第一阶段 - 步骤3: 镇级用户审核资格申报"):
-            log("E2E", ">>> [阶段1-步骤3] 镇级用户：审核资格申报 <<<", "STEP")
+        with allure.step("第一阶段 - 步骤3: 镇级用户审核设备新增"):
+            log("E2E", ">>> [阶段1-步骤3] 镇级用户：审核设备新增 <<<", "STEP")
             role_mgr.switch_to("town")
 
             # 导航到审核管理页
@@ -116,9 +116,9 @@ class TestFullBusinessFlow:
             audit_page.navigate_to_audit()
 
             # 执行审核通过
-            result = audit_page.perform_approve(order_id, comment="自动化测试：资格审核通过")
-            assert result, f"❌ 镇级用户审核记录 [{order_id}] 失败"
-            log("E2E", f"✅ 第一阶段完成：资格申报 [{order_id}] 已审核通过，数据进入台账", "OK")
+            result = audit_page.perform_approve(order_id, comment="自动化测试：设备新增审核通过")
+            assert result, f"❌ 镇级用户审核设备新增 [{order_id}] 失败"
+            log("E2E", f"✅ 第一阶段完成：设备新增 [{order_id}] 已审核通过，数据进入台账", "OK")
 
         # ==================== 第二阶段：补贴申报与审核 ====================
 
@@ -171,7 +171,7 @@ class TestFullBusinessFlow:
         # ==================== 流程结束 ====================
         device_info = f"{form_result.get('设备厂家', '-')}-{form_result.get('设备类型', '-')}-{form_result.get('设备型号', '-')}"
         log("E2E", "=" * 60, "OK")
-        log("E2E", f"  🎉 两阶段全链路测试通过！申报编号: {order_id}", "OK")
+        log("E2E", f"  🎉 设备新增全链路测试通过！申报编号: {order_id}", "OK")
         log("E2E", f"  户主: {test_data['household_name']}", "OK")
         log("E2E", f"  设备: {device_info}", "OK")
         log("E2E", f"  购置金额: ¥{form_result.get('购置金额', '-')}", "OK")
