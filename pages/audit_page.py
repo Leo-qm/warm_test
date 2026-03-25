@@ -14,7 +14,7 @@ class AuditPage(BasePage):
     """申报审核管理页 — 封装审核流程（镇级用户操作）"""
 
     def navigate_to_audit(self):
-        """导航至申报审核管理页面，确保数据加载完成"""
+        """导航至申报审核管理页面，确保数据加载完成（含刷新重试）"""
         log("业务步骤", "========== 导航至申报审核页面 ==========", "STEP")
         try:
             top = self.page.locator(".cls-header-menu a:has-text('清洁能源')")
@@ -38,15 +38,25 @@ class AuditPage(BasePage):
         except:
             pass
 
-        # 等待表格数据实际加载
-        try:
-            self.page.wait_for_selector(
-                "table.el-table__body tr", timeout=Config.PAGE_LOAD_TIMEOUT
-            )
-        except:
-            log("导航", "表格数据未加载，可能列表为空", "WARN")
+        # 等待表格数据加载（含刷新重试，最多 3 次）
+        for attempt in range(1, 4):
+            try:
+                self.page.wait_for_selector(
+                    "table.el-table__body tr", timeout=Config.PAGE_LOAD_TIMEOUT
+                )
+                log("导航", "✅ 已进入申报审核管理页面", "OK")
+                return
+            except:
+                if attempt < 3:
+                    log("导航", f"表格数据未加载，正在刷新页面 (第 {attempt} 次)...", "WARN")
+                    self.page.reload()
+                    time.sleep(Config.LONG_WAIT)
+                    try:
+                        self.page.wait_for_load_state("networkidle", timeout=8000)
+                    except:
+                        pass
 
-        log("导航", "✅ 已进入申报审核管理页面", "OK")
+        log("导航", "⚠️ 多次刷新后表格仍无数据", "WARN")
 
     def _set_status_filter(self, status_text):
         """
@@ -118,20 +128,32 @@ class AuditPage(BasePage):
         self.fill_input_by_label("申报编号", order_id)
         time.sleep(0.5)
 
-        # 点击搜索按钮
-        self.page.click("button:has-text('搜索')")
-        time.sleep(Config.LONG_WAIT)
+        # 搜索并重试（如果列表为空，刷新页面重新搜索，最多 3 次）
+        for attempt in range(1, 4):
+            self.page.click("button:has-text('搜索')")
+            time.sleep(Config.LONG_WAIT)
 
-        # 检查第一行是否匹配
-        try:
-            row = self.page.locator("table.el-table__body tr").first
-            if order_id in row.inner_text():
-                log("查询", f"✅ 成功定位到待审核记录: {order_id}", "OK")
-                return True
-        except:
-            pass
+            try:
+                row = self.page.locator("table.el-table__body tr").first
+                if order_id in row.inner_text():
+                    log("查询", f"✅ 成功定位到待审核记录: {order_id}", "OK")
+                    return True
+            except:
+                pass
 
-        log("查询", f"❌ 未找到待审核记录: {order_id}", "ERROR")
+            if attempt < 3:
+                log("查询", f"未找到 {order_id}，刷新页面重试 (第 {attempt} 次)...", "WARN")
+                self.page.reload()
+                time.sleep(Config.LONG_WAIT)
+                try:
+                    self.page.wait_for_load_state("networkidle", timeout=8000)
+                except:
+                    pass
+                # 重新填写搜索条件
+                self.fill_input_by_label("申报编号", order_id)
+                time.sleep(0.5)
+
+        log("查询", f"❌ 多次刷新后仍未找到待审核记录: {order_id}", "ERROR")
         return False
 
     def click_audit_button(self, order_id, status_filter=None):

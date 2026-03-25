@@ -157,7 +157,7 @@ class TestFullBusinessFlow:
             audit_page.navigate_to_audit()
 
             # 执行补贴审核通过
-            result = audit_page.perform_approve(order_id, comment="自动化测试：补贴审核通过", status_filter="补贴审核")
+            result = audit_page.perform_approve(order_id, comment="自动化测试：补贴审核通过")
             assert result, f"❌ 镇级用户补贴审核 [{order_id}] 失败"
             log("E2E", f"✅ 第二阶段完成：补贴申报 [{order_id}] 已审核通过", "OK")
 

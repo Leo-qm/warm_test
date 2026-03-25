@@ -254,16 +254,19 @@ class LedgerPage(BasePage):
     # ==================== 弹窗内操作工具方法 ====================
     def _select_dropdown(self, label_text):
         """
-        【精确下拉选择】
+        【键盘选择策略】
         
-        关键修复：
-        1. 用 .el-form-item__label 精确匹配标签，避免 placeholder 子串干扰
-           （如"设备类型"不会误匹配"设备型号"的 placeholder"请先选择设备类型"）
-        2. 打开前先点击空白区域关闭任何已打开的下拉面板
-        3. 打开后等待选项加载，再选择第一个可见选项
+        核心方案（后续所有下拉选择都应遵循）：
+        1. 用 .el-form-item__label 精确匹配标签（不匹配 placeholder 子串）
+        2. Playwright click(force=True) 打开下拉框
+        3. 键盘 ArrowDown + Enter 选择第一项（走 Element UI 内置事件链）
+        
+        为什么用键盘而不是 JS click：
+        - Element UI el-select 的选项通过组件内部事件触发 v-model 更新
+        - JS item.click() 不一定能完整触发 Vue 级联响应
+        - 键盘操作走组件内置 handleKeyDown，确保 v-model 更新 + 级联触发
         """
         try:
-            # 精确匹配：通过标签文本定位 form-item（只匹配标签，不匹配 placeholder）
             form_item = self.page.locator(".el-form-item").filter(
                 has=self.page.locator(".el-form-item__label", has_text=label_text)
             )
@@ -274,25 +277,22 @@ class LedgerPage(BasePage):
                 log("表单填写", f"⚠️ {label_text}: 输入框被禁用（可能上级未选）", "WARN")
                 return
 
-            # 先关闭任何已打开的下拉面板（点击弹窗标题区域）
-            try:
-                self.page.locator(".el-dialog__title").first.click(force=True)
-                time.sleep(0.3)
-            except:
-                pass
-
-            # 打开目标下拉框
+            # Playwright 点击打开下拉框
             select_input.click(force=True)
             time.sleep(1)
 
-            # 选择第一个可见的下拉选项
-            item = self.page.locator(".el-select-dropdown__item >> visible=true").first
-            if item.count() > 0:
-                item.click()
-                time.sleep(0.5)
-                log("表单填写", f"✅ {label_text}: 已选第一项")
+            # 键盘选择第一项：ArrowDown 高亮第一个选项，Enter 确认选择
+            self.page.keyboard.press("ArrowDown")
+            time.sleep(0.3)
+            self.page.keyboard.press("Enter")
+            time.sleep(0.5)
+
+            # 验证是否选择成功（读取 input 的 value）
+            val = select_input.input_value()
+            if val and val.strip():
+                log("表单填写", f"✅ {label_text}: 已选 [{val}]")
             else:
-                log("表单填写", f"⚠️ {label_text}: 无可选项", "WARN")
+                log("表单填写", f"⚠️ {label_text}: 键盘选择后值仍为空", "WARN")
         except Exception as e:
             log_err("表单填写", f"{label_text} 下拉选择失败", e)
 
