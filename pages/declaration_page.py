@@ -49,54 +49,84 @@ class DeclarationPage(BasePage):
         self.page.click("button:has-text('添加')")
         time.sleep(Config.SHORT_WAIT)
         self.page.click(".declaration-type-dialog .type-button:has-text('设备更新')")
-        time.sleep(Config.MEDIUM_WAIT)
+        time.sleep(Config.LONG_WAIT)  # 等待设备更新弹窗加载
         log("设备更新", "✅ 已选择 [设备更新] 类型")
         
-        # 2. 在弹窗中输入身份证号
-        #    截图DOM结构：查询类型下拉(身份证号) + 文本输入框(请输入...) + 蓝色查询按钮
+        # 2. 等待"设备更新申报"弹窗出现，并定位身份证号输入框
+        #    截图DOM结构：弹窗标题"设备更新申报" → 查询区域: [身份证号下拉] [请输入 input] [查询按钮]
         try:
-            dialog = self.page.locator(".el-dialog__body").first
+            # 等待设备更新弹窗标题出现（区分类型选择弹窗）
+            self.page.locator(".el-dialog__header:has-text('设备更新')").first.wait_for(
+                state="visible", timeout=Config.PAGE_LOAD_TIMEOUT
+            )
+            time.sleep(Config.SHORT_WAIT)
+            log("设备更新", "✅ 设备更新弹窗已加载")
+            
+            # 定位正确的弹窗（含"设备更新"标题的那个 dialog）
+            dialog = self.page.locator(".el-dialog:has(.el-dialog__header:has-text('设备更新')) .el-dialog__body").first
             id_input = None
-
-            # 策略1：查找蓝色查询按钮旁边的输入框（最可靠）
+            
+            # 策略1：找蓝色查询按钮同级的输入框
             try:
-                # 查找查询按钮所在行的输入框
-                query_row = dialog.locator(".el-input__inner")
-                for i in range(query_row.count()):
-                    inp = query_row.nth(i)
-                    if inp.is_visible(timeout=1000) and inp.is_enabled(timeout=1000):
-                        placeholder = inp.get_attribute("placeholder") or ""
-                        if "请输入" in placeholder or "输入" in placeholder:
-                            id_input = inp
-                            log("设备更新", f"✅ 策略1命中：placeholder='{placeholder}'")
-                            break
+                query_btn = dialog.locator("button:has-text('查询')").first
+                if query_btn.is_visible(timeout=2000):
+                    # 查询按钮的父容器内的文本输入框
+                    parent = query_btn.locator("..")  # 按钮的父元素
+                    inp = parent.locator(".. >> input.el-input__inner").first
+                    if not inp.is_visible(timeout=1000):
+                        inp = None
+                    else:
+                        id_input = inp
+                        log("设备更新", "✅ 策略1命中：查询按钮同行输入框")
             except:
                 pass
-
-            # 策略2：通过 placeholder 模糊匹配
+            
+            # 策略2：通过 placeholder "请输入" 在弹窗内精确查找
             if not id_input:
                 try:
-                    id_input = dialog.locator("input[placeholder*='请输入']").first
-                    if id_input.is_visible(timeout=2000):
-                        log("设备更新", "✅ 策略2命中：placeholder包含'请输入'")
-                    else:
-                        id_input = None
-                except:
-                    id_input = None
-
-            # 策略3：取弹窗内所有可见可编辑的 input，排除下拉选择框
-            if not id_input:
-                try:
-                    all_inputs = dialog.locator(".el-input:not(.el-select) .el-input__inner")
-                    for i in range(all_inputs.count()):
-                        inp = all_inputs.nth(i)
+                    candidates = dialog.locator("input.el-input__inner[placeholder*='请输入']")
+                    cnt = candidates.count()
+                    log("设备更新", f"策略2：找到 {cnt} 个 placeholder 含'请输入'的 input")
+                    for i in range(cnt):
+                        inp = candidates.nth(i)
                         if inp.is_visible(timeout=1000) and inp.is_enabled(timeout=1000):
-                            id_input = inp
-                            log("设备更新", "✅ 策略3命中：第一个可编辑非下拉input")
-                            break
+                            # 排除下拉选择框内的 input（readonly 或 aria-role=combobox）
+                            readonly = inp.get_attribute("readonly")
+                            if readonly is None:
+                                id_input = inp
+                                log("设备更新", f"✅ 策略2命中：第{i+1}个可编辑input")
+                                break
                 except:
                     pass
-
+            
+            # 策略3：JS 兜底 — 在所有弹窗内找身份证号查询区域的输入框
+            if not id_input:
+                try:
+                    js_result = self.page.evaluate("""() => {
+                        const dialogs = document.querySelectorAll('.el-dialog__body');
+                        for (const d of dialogs) {
+                            if (!d.offsetParent) continue;  // 跳过隐藏的
+                            const inputs = d.querySelectorAll('input.el-input__inner');
+                            for (const inp of inputs) {
+                                if (inp.offsetParent && !inp.readOnly && !inp.disabled) {
+                                    const ph = inp.placeholder || '';
+                                    if (ph.includes('请输入') || ph.includes('输入')) {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                        return false;
+                    }""")
+                    if js_result:
+                        id_input = self.page.locator(".el-dialog__body >> input.el-input__inner[placeholder*='请输入']:not([readonly])").first
+                        if id_input.is_visible(timeout=2000):
+                            log("设备更新", "✅ 策略3命中：JS兜底定位")
+                        else:
+                            id_input = None
+                except:
+                    pass
+            
             if not id_input:
                 log("设备更新", "❌ 所有策略均未找到身份证号输入框", "ERROR")
                 return None
