@@ -170,7 +170,5 @@ class TestFullBusinessFlow:
         log("E2E", "=" * 60, "OK")
         log("E2E", f"  🎉 两阶段全链路测试通过！申报编号: {order_id}", "OK")
         log("E2E", f"  户主: {test_data['household_name']}", "OK")
-        log("E2E", f"  设备: {test_data['device_brand']} {test_data['device_model']}", "OK")
-        log("E2E", f"  补贴: ¥{test_data['subsidy_amount']}", "OK")
         log("E2E", f"  特殊补贴: {special_subsidy}", "OK")
         log("E2E", "=" * 60, "OK")
