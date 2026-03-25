@@ -295,8 +295,7 @@ class DeclarationPage(BasePage):
         
         if data.get("user_number"):
             fill_in_dialog("用户编号", data["user_number"], "用户编号")
-        if data.get("door_number"):
-            fill_in_dialog("门牌", data["door_number"], "门牌号")
+
         if data.get("bank_account"):
             fill_in_dialog("银行卡", data["bank_account"], "银行卡/折账号")
         if data.get("account_holder_name"):
@@ -306,8 +305,76 @@ class DeclarationPage(BasePage):
         log("设备更新", ">> [附件] 上传证明材料", "STEP")
         self._upload(body)
         
-        # 7. 保存并上报
-        return self._save_form()
+        # 7. 滚动到底部并点击「保存并提交」（在弹窗内精确点击）
+        log("设备更新", ">> 点击保存并提交", "STEP")
+        if body:
+            body.evaluate("el => el.scrollTop = el.scrollHeight")
+            time.sleep(0.5)
+        try:
+            clicked = self.page.evaluate("""() => {
+                const wrappers = document.querySelectorAll('.el-dialog__wrapper');
+                for (const wrapper of wrappers) {
+                    if (wrapper.style.display === 'none') continue;
+                    const header = wrapper.querySelector('.el-dialog__header');
+                    if (!header || !header.textContent.includes('设备更新')) continue;
+                    const footer = wrapper.querySelector('.el-dialog__footer') || wrapper.querySelector('.dialog-footer') || wrapper;
+                    const btns = footer.querySelectorAll('button');
+                    for (const btn of btns) {
+                        if (btn.textContent.trim().includes('保存并') || btn.textContent.trim().includes('保存并提交')) {
+                            btn.click();
+                            return 'submit';
+                        }
+                    }
+                    // 退而求其次：找包含'保存'文本的非取消按钮
+                    for (const btn of btns) {
+                        const txt = btn.textContent.trim();
+                        if (txt.includes('保存') && !txt.includes('取消')) {
+                            btn.click();
+                            return 'save';
+                        }
+                    }
+                }
+                return null;
+            }""")
+            if clicked:
+                log("设备更新", f"✅ 已点击按钮: {clicked}")
+            else:
+                log("设备更新", "❌ 未在弹窗内找到保存按钮", "ERROR")
+                return None
+        except Exception as e:
+            log("设备更新", f"❌ 点击保存按钮异常: {e}", "ERROR")
+            return None
+        
+        # 8. 等待保存成功并抓取编号
+        try:
+            self.page.wait_for_selector("text=保存成功", timeout=15000)
+            log("设备更新", "✅ 保存成功提示已出现")
+            time.sleep(Config.SHORT_WAIT)
+            
+            try:
+                self.page.wait_for_selector(".el-dialog__wrapper", state="hidden", timeout=5000)
+            except:
+                pass
+            
+            for attempt in range(3):
+                time.sleep(Config.MEDIUM_WAIT)
+                row = self.page.locator("table.el-table__body tr").first
+                if row.count() == 0:
+                    continue
+                cells = row.locator("td")
+                count = cells.count()
+                for i in range(count):
+                    txt = cells.nth(i).inner_text().strip()
+                    if txt.startswith("SB20"):
+                        log("设备更新", f"✅ 成功抓取系统申报编号: {txt}", "OK")
+                        return txt
+                log("设备更新", f"第 {attempt+1} 次抓取未成功，重试中...", "WARN")
+            
+            log("设备更新", "⚠️ 多次重试未发现 SB 编号", "WARN")
+            return None
+        except Exception as e:
+            log("设备更新", f"❌ 保存响应异常: {e}", "ERROR")
+            return None
 
     def search_record(self, order_id):
         """[Read] 在列表页通过"申报编号"精准搜索记录"""
