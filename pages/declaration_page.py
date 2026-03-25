@@ -53,12 +53,55 @@ class DeclarationPage(BasePage):
         log("设备更新", "✅ 已选择 [设备更新] 类型")
         
         # 2. 在弹窗中输入身份证号
+        #    截图DOM结构：查询类型下拉(身份证号) + 文本输入框(请输入...) + 蓝色查询按钮
         try:
             dialog = self.page.locator(".el-dialog__body").first
-            id_input = dialog.locator("input[placeholder*='身份证']").first
-            if id_input.count() == 0:
-                # 兜底：通过 label 定位
-                id_input = dialog.locator(".el-form-item").filter(has_text="身份证").locator(".el-input__inner").first
+            id_input = None
+
+            # 策略1：查找蓝色查询按钮旁边的输入框（最可靠）
+            try:
+                # 查找查询按钮所在行的输入框
+                query_row = dialog.locator(".el-input__inner")
+                for i in range(query_row.count()):
+                    inp = query_row.nth(i)
+                    if inp.is_visible(timeout=1000) and inp.is_enabled(timeout=1000):
+                        placeholder = inp.get_attribute("placeholder") or ""
+                        if "请输入" in placeholder or "输入" in placeholder:
+                            id_input = inp
+                            log("设备更新", f"✅ 策略1命中：placeholder='{placeholder}'")
+                            break
+            except:
+                pass
+
+            # 策略2：通过 placeholder 模糊匹配
+            if not id_input:
+                try:
+                    id_input = dialog.locator("input[placeholder*='请输入']").first
+                    if id_input.is_visible(timeout=2000):
+                        log("设备更新", "✅ 策略2命中：placeholder包含'请输入'")
+                    else:
+                        id_input = None
+                except:
+                    id_input = None
+
+            # 策略3：取弹窗内所有可见可编辑的 input，排除下拉选择框
+            if not id_input:
+                try:
+                    all_inputs = dialog.locator(".el-input:not(.el-select) .el-input__inner")
+                    for i in range(all_inputs.count()):
+                        inp = all_inputs.nth(i)
+                        if inp.is_visible(timeout=1000) and inp.is_enabled(timeout=1000):
+                            id_input = inp
+                            log("设备更新", "✅ 策略3命中：第一个可编辑非下拉input")
+                            break
+                except:
+                    pass
+
+            if not id_input:
+                log("设备更新", "❌ 所有策略均未找到身份证号输入框", "ERROR")
+                return None
+
+            id_input.click()
             id_input.fill(id_card)
             time.sleep(Config.SHORT_WAIT)
             log("设备更新", f"✅ 已填入身份证号: {id_card}")
