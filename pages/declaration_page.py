@@ -52,34 +52,61 @@ class DeclarationPage(BasePage):
         time.sleep(Config.LONG_WAIT)  # 等待设备更新弹窗加载
         log("设备更新", "✅ 已选择 [设备更新] 类型")
         
-        # 2. 等待"设备更新申报"弹窗出现
-        #    截图DOM结构：弹窗标题"设备更新申报" → 申报资格查询区域:
-        #    所属区[x] 所属镇[x] 所属村[x] 查询[下拉:身份证号] [请输入 input] [查询按钮]
+        # 2. 用JS轮询等待"设备更新申报"弹窗可见
+        #    截图DOM: 弹窗标题"设备更新申报" → 申报资格查询区域:
+        #    所属区 所属镇 所属村 查询[下拉:身份证号] [请输入 input] [查询按钮]
         try:
-            # 等待设备更新弹窗标题出现
-            self.page.locator(".el-dialog__header:has-text('设备更新')").first.wait_for(
-                state="visible", timeout=Config.PAGE_LOAD_TIMEOUT
-            )
-            time.sleep(Config.MEDIUM_WAIT)
-            log("设备更新", "✅ 设备更新弹窗已加载")
-        except Exception as e:
-            log_err("设备更新", "设备更新弹窗加载超时", e)
-            return None
-
-        # 3. 选择查询类型下拉为"身份证号"（确保下拉当前值正确）
-        try:
-            # 通过 JS 定位"设备更新"弹窗内、紧接"查询"文字后的下拉选择框
-            self.page.evaluate("""() => {
-                const dialogs = document.querySelectorAll('.el-dialog');
-                for (const dlg of dialogs) {
-                    const header = dlg.querySelector('.el-dialog__header');
-                    if (header && header.textContent.includes('设备更新')) {
-                        const selects = dlg.querySelectorAll('.el-select .el-input__inner');
-                        // 最后一个 select（查询类型下拉，前面是区/镇/村）
-                        const querySelect = selects[selects.length - 1];
-                        if (querySelect) {
-                            querySelect.click();
+            for attempt in range(10):
+                visible = self.page.evaluate("""() => {
+                    const dialogs = document.querySelectorAll('.el-dialog__wrapper');
+                    for (const wrapper of dialogs) {
+                        if (wrapper.style.display === 'none') continue;
+                        const header = wrapper.querySelector('.el-dialog__header');
+                        if (header && header.textContent.includes('设备更新')) {
+                            return true;
                         }
+                    }
+                    return false;
+                }""")
+                if visible:
+                    log("设备更新", "✅ 设备更新弹窗已加载（JS轮询确认）")
+                    break
+                time.sleep(1)
+            else:
+                log("设备更新", "❌ 等待设备更新弹窗超时", "ERROR")
+                return None
+        except Exception as e:
+            log_err("设备更新", "等待弹窗异常", e)
+            return None
+        
+        time.sleep(Config.MEDIUM_WAIT)
+
+        # 辅助函数：定位可见的设备更新弹窗
+        FIND_VISIBLE_DIALOG_JS = """
+            const dialogs = document.querySelectorAll('.el-dialog__wrapper');
+            for (const wrapper of dialogs) {
+                if (wrapper.style.display === 'none') continue;
+                const header = wrapper.querySelector('.el-dialog__header');
+                if (header && header.textContent.includes('设备更新')) {
+                    return wrapper.querySelector('.el-dialog');
+                }
+            }
+            return null;
+        """
+
+        # 3. 选择查询类型下拉为"身份证号"
+        try:
+            self.page.evaluate("""() => {
+                const dialogs = document.querySelectorAll('.el-dialog__wrapper');
+                for (const wrapper of dialogs) {
+                    if (wrapper.style.display === 'none') continue;
+                    const header = wrapper.querySelector('.el-dialog__header');
+                    if (header && header.textContent.includes('设备更新')) {
+                        const dlg = wrapper.querySelector('.el-dialog');
+                        const selects = dlg.querySelectorAll('.el-select .el-input__inner');
+                        // 最后一个 select 就是查询类型下拉（前面是区/镇/村）
+                        const querySelect = selects[selects.length - 1];
+                        if (querySelect) querySelect.click();
                         return;
                     }
                 }
@@ -99,29 +126,26 @@ class DeclarationPage(BasePage):
         except Exception as e:
             log("设备更新", f"⚠️ 操作查询类型下拉异常: {e}，继续尝试", "WARN")
 
-        # 4. 定位并填写身份证号输入框（紧接在下拉框后面的 "请输入" 输入框）
+        # 4. 定位并填写身份证号输入框
         try:
-            # 通过 JS 精确定位：找到设备更新弹窗内、非 readonly/disabled、placeholder 含"请输入"的 input
             id_input_index = self.page.evaluate("""() => {
-                const dialogs = document.querySelectorAll('.el-dialog');
-                for (const dlg of dialogs) {
-                    const header = dlg.querySelector('.el-dialog__header');
+                const dialogs = document.querySelectorAll('.el-dialog__wrapper');
+                for (const wrapper of dialogs) {
+                    if (wrapper.style.display === 'none') continue;
+                    const header = wrapper.querySelector('.el-dialog__header');
                     if (header && header.textContent.includes('设备更新')) {
-                        const body = dlg.querySelector('.el-dialog__body');
+                        const body = wrapper.querySelector('.el-dialog__body');
                         if (!body) continue;
                         const allInputs = document.querySelectorAll('input.el-input__inner');
                         for (let i = 0; i < allInputs.length; i++) {
                             const inp = allInputs[i];
-                            // 必须在该弹窗体内
                             if (!body.contains(inp)) continue;
-                            // 必须可见、非只读、非禁用
                             if (!inp.offsetParent || inp.readOnly || inp.disabled) continue;
                             const ph = inp.placeholder || '';
                             if (ph.includes('请输入') || ph === '') {
-                                // 排除 el-select 内部的 input
-                                const parent = inp.closest('.el-select');
-                                if (!parent) {
-                                    return i;  // 返回全局 index
+                                const selectParent = inp.closest('.el-select');
+                                if (!selectParent) {
+                                    return i;
                                 }
                             }
                         }
@@ -146,15 +170,17 @@ class DeclarationPage(BasePage):
         
         # 5. 点击蓝色查询按钮
         try:
-            # 精确定位设备更新弹窗内的查询按钮
             self.page.evaluate("""() => {
-                const dialogs = document.querySelectorAll('.el-dialog');
-                for (const dlg of dialogs) {
-                    const header = dlg.querySelector('.el-dialog__header');
+                const dialogs = document.querySelectorAll('.el-dialog__wrapper');
+                for (const wrapper of dialogs) {
+                    if (wrapper.style.display === 'none') continue;
+                    const header = wrapper.querySelector('.el-dialog__header');
                     if (header && header.textContent.includes('设备更新')) {
+                        const dlg = wrapper.querySelector('.el-dialog');
                         const btns = dlg.querySelectorAll('button');
                         for (const btn of btns) {
-                            if (btn.textContent.trim() === '查询' || btn.textContent.trim().includes('查询')) {
+                            const txt = btn.textContent.trim();
+                            if (txt === '查询' || txt.includes('查询')) {
                                 btn.click();
                                 return;
                             }
