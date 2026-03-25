@@ -17,6 +17,9 @@ class TestDeclarationCRUD:
 
         log("测试用例", f">>> 开始执行: [CRUD 闭环测试 (户主={is_household})] <<<")
 
+        # 确保每轮开始前在正确的页面（session scope fixture 共享同一页面）
+        declaration.navigate_to_declaration()
+
         # 1. [Create] 新增记录
         log("测试用例", "--- 阶段 1: 新增记录 ---", "STEP")
         test_data = DataFactory.build_test_data(is_household=is_household)
