@@ -31,7 +31,7 @@ class DeclarationPage(BasePage):
         log("业务步骤", "执行 [新增] 记录流程", "STEP")
         self.page.click("button:has-text('添加')")
         self.page.click(".declaration-type-dialog .type-button:has-text('设备新增')")
-        self.page.wait_for_selector("text=户主信息", timeout=Config.PAGE_LOAD_TIMEOUT)
+        self.page.locator(".section-title:has-text('户主信息')").first.wait_for(state="visible", timeout=Config.PAGE_LOAD_TIMEOUT)
         self._fill_form_content(data)
         return self._save_form()
 
