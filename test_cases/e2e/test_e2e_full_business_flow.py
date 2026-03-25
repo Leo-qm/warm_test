@@ -63,14 +63,17 @@ class TestFullBusinessFlow:
     E2E 两阶段全链路测试
     模拟真实业务：
       村级账号填报 → 镇级账号审核 → 村级账号补贴申报 → 镇级账号审核补贴
+    参数化：特殊补贴"是/否"分别验证
     """
 
-    @allure.title("两阶段全链路业务闭环测试")
-    def test_full_two_phase_flow(self, page, ocr_engine):
+    @allure.title("两阶段全链路业务闭环测试 (特殊补贴={special_subsidy})")
+    @pytest.mark.parametrize("special_subsidy", ["否", "是"])
+    def test_full_two_phase_flow(self, page, ocr_engine, special_subsidy):
         """
         完整的两阶段业务闭环:
         第一阶段: 村级申报 → 村级上报 → 镇级审核
         第二阶段: 村级补贴申报 → 镇级审核补贴
+        参数化: special_subsidy 控制特殊补贴选择（是=填额外字段，否=跳过）
         """
         # ==================== 初始化 ====================
         role_mgr = RoleManager(page, ocr_engine)
@@ -80,6 +83,7 @@ class TestFullBusinessFlow:
         log("E2E", "=" * 60, "STEP")
         log("E2E", "  两阶段全链路业务流程测试 启动", "STEP")
         log("E2E", f"  测试数据: 户主={test_data['household_name']}", "STEP")
+        log("E2E", f"  特殊补贴: {special_subsidy}", "STEP")
         log("E2E", "=" * 60, "STEP")
 
         # ==================== 第一阶段：资格申报与审核 ====================
@@ -118,7 +122,7 @@ class TestFullBusinessFlow:
 
         # ==================== 第二阶段：补贴申报与审核 ====================
 
-        with allure.step("第二阶段 - 步骤1: 村级用户发起补贴申报"):
+        with allure.step(f"第二阶段 - 步骤1: 村级用户发起补贴申报 (特殊补贴={special_subsidy})"):
             log("E2E", ">>> [阶段2-步骤1] 村级用户：发起补贴申报 <<<", "STEP")
             role_mgr.switch_to("village")
 
@@ -131,8 +135,8 @@ class TestFullBusinessFlow:
             assert started, f"❌ 在台账中未能发起 [{order_id}] 的补贴申报"
             log("E2E", f"✅ 已成功进入 [{order_id}] 的补贴申报表单", "OK")
 
-        with allure.step("第二阶段 - 步骤2: 村级用户填写并提交补贴表单"):
-            log("E2E", ">>> [阶段2-步骤2] 填写补贴申报表单 <<<", "STEP")
+        with allure.step(f"第二阶段 - 步骤2: 填写补贴表单 (特殊补贴={special_subsidy})"):
+            log("E2E", f">>> [阶段2-步骤2] 填写补贴申报表单 (特殊补贴={special_subsidy}) <<<", "STEP")
 
             # 使用 DataFactory 生成的补贴字段填写表单
             subsidy_data = {
@@ -143,10 +147,11 @@ class TestFullBusinessFlow:
                 "installer_name": test_data["installer_name"],
                 "installer_phone": test_data["installer_phone"],
                 "invoice_number": test_data["invoice_number"],
+                "special_subsidy": special_subsidy,  # 控制是否申报特殊补贴
             }
             submitted = ledger_page.fill_subsidy_declaration(subsidy_data)
             assert submitted, f"❌ 补贴申报表单提交失败"
-            log("E2E", f"✅ 补贴申报表单已提交，等待镇级审核", "OK")
+            log("E2E", f"✅ 补贴申报表单已提交（特殊补贴={special_subsidy}），等待镇级审核", "OK")
 
         with allure.step("第二阶段 - 步骤3: 镇级用户审核补贴申报"):
             log("E2E", ">>> [阶段2-步骤3] 镇级用户：审核补贴申报 <<<", "STEP")
@@ -167,4 +172,5 @@ class TestFullBusinessFlow:
         log("E2E", f"  户主: {test_data['household_name']}", "OK")
         log("E2E", f"  设备: {test_data['device_brand']} {test_data['device_model']}", "OK")
         log("E2E", f"  补贴: ¥{test_data['subsidy_amount']}", "OK")
+        log("E2E", f"  特殊补贴: {special_subsidy}", "OK")
         log("E2E", "=" * 60, "OK")

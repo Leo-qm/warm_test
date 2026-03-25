@@ -170,18 +170,39 @@ class LedgerPage(BasePage):
             self.fill_input_by_label("安装人员联系电话", d.get("installer_phone", "13800000000"))
 
             # === 特殊补贴信息 ===
-            # 默认可能选了"是"，需要选"否"来跳过额外的特殊补贴申报类型和证明材料上传
+            special_subsidy = d.get("special_subsidy", "否")
             try:
-                no_radio = self.page.locator("label.el-radio").filter(has_text="否")
-                # 找属于"是否申报特殊补贴"的"否"选项
                 special_section = self.page.locator(".el-form-item").filter(has_text="是否申报特殊补贴")
-                no_btn = special_section.locator("label.el-radio").filter(has_text="否").first
-                if no_btn.count() > 0 and no_btn.is_visible(timeout=2000):
-                    no_btn.click(force=True)
+                radio_btn = special_section.locator("label.el-radio").filter(has_text=special_subsidy).first
+
+                if radio_btn.is_visible(timeout=2000):
+                    radio_btn.click(force=True)
                     time.sleep(0.5)
-                    log("表单填写", "✅ 特殊补贴信息: 已选 [否]")
-            except:
-                log("表单填写", "⚠️ 特殊补贴信息: 未找到'否'选项", "WARN")
+                    log("表单填写", f"✅ 是否申报特殊补贴: 已选 [{special_subsidy}]")
+
+                    # 选"是"时需要额外填写2个字段
+                    if special_subsidy == "是":
+                        time.sleep(1)
+
+                        # 1. 特殊补贴申报类型（下拉单选）
+                        self._select_dropdown("特殊补贴申报类型")
+
+                        # 2. 特殊补贴证明材料（上传附件）
+                        try:
+                            test_img = os.path.join(os.getcwd(), "test_upload.png")
+                            if os.path.exists(test_img):
+                                # 找特殊补贴证明材料的上传按钮
+                                cert_section = self.page.locator(".el-form-item").filter(has_text="特殊补贴证明材料")
+                                cert_input = cert_section.locator("input[type='file']").first
+                                cert_input.set_input_files(test_img)
+                                time.sleep(1)
+                                log("表单填写", "✅ 特殊补贴证明材料: 已上传")
+                        except Exception as e:
+                            log("表单填写", f"⚠️ 特殊补贴证明材料上传失败: {e}", "WARN")
+                else:
+                    log("表单填写", f"⚠️ 特殊补贴信息: '{special_subsidy}'选项不可见", "WARN")
+            except Exception as e:
+                log("表单填写", f"⚠️ 特殊补贴信息处理异常: {e}", "WARN")
 
             # === 附件上传 ===
             try:
