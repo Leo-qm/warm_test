@@ -63,12 +63,12 @@ class TestDeviceAddFlow:
     E2E 设备新增全链路测试
     模拟真实业务：
       村级账号设备新增申报 → 镇级账号审核 → 村级账号补贴申报 → 镇级账号审核补贴
-    参数化：特殊补贴"是/否"分别验证
+    参数化：是否户主"是/否"，特殊补贴"是/否"
     """
-
-    @allure.title("设备新增全链路测试 (特殊补贴={special_subsidy})")
+    @allure.title("设备新增全链路测试 (是否户主: {is_household}, 特殊补贴={special_subsidy})")
+    @pytest.mark.parametrize("is_household", ["是", "否"])
     @pytest.mark.parametrize("special_subsidy", ["否", "是"])
-    def test_device_add_flow(self, page, ocr_engine, special_subsidy):
+    def test_device_add_flow(self, page, ocr_engine, special_subsidy, is_household):
         """
         设备新增完整业务闭环:
         第一阶段: 村级设备新增申报 → 镇级审核
