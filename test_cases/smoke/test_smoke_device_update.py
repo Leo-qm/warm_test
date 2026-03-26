@@ -15,7 +15,7 @@ from utils.logger import log
 
 
 # 硬编码已审核通过的设备新增记录的身份证号
-FIXED_ID_CARD = "320106198701094660"
+FIXED_ID_CARD = "11010119750126802X"
 
 
 @pytest.mark.smoke

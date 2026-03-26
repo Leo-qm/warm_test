@@ -1,14 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-登录页面封装模块
-自动根据 Config.ENV_TYPE 区分 local / test 环境的登录差异：
-- local: 验证码 5 位，Base64 图片，登录后直达清洁能源系统，登录按钮 class=lgoinBtn
-- test:  验证码 4 位，URL 图片，登录后进入门户首页，登录按钮为 el-button--primary
-
-验证码重试策略优化：
-- 策略1（点击换一个文字）/ 策略2（点击验证码图片）：只需重新识别验证码，不需重输账号密码
-- 策略3（物理刷新页面）：需要重新输入账号、密码、验证码
-"""
+"""登录页面封装 — 自动适配 local/test 环境的验证码识别与登录重试"""
 import time
 from pages.base_page import BasePage
 import allure
@@ -24,11 +15,7 @@ class LoginPage(BasePage):
         self.ocr = ocr
 
     def _get_captcha_img_locator(self):
-        """
-        获取验证码图片定位器（兼容两种环境的 src 格式）
-        - test 环境: img[src*='captcha']  (URL 中含 captcha)
-        - local 环境: img[src^='data:image'] (Base64 编码图片)
-        """
+        """获取验证码图片定位器（兼容 test/local 环境）"""
         if Config.ENV_TYPE == "local":
             return self.page.locator("img[src^='data:image']").first
         else:
@@ -36,13 +23,7 @@ class LoginPage(BasePage):
 
     @allure.step("登录系统 (角色: {role})")
     def login(self, role="village"):
-        """
-        执行完整登录流程（含验证码识别与重试），可通过 role 参数切换登录角色。
-        
-        优化要点：
-        - 首次进入及策略3（页面物理刷新）后才重新输入用户名和密码
-        - 策略1/2（刷新验证码图片）只需重新识别并输入验证码
-        """
+        """执行登录流程（含验证码识别与重试）"""
         env = Config.ENV_TYPE
         captcha_len = Config.get_captcha_length()
         log("业务步骤", f"========== 执行登录流程 (角色: {role}, 环境: {env}, 验证码: {captcha_len}位) ==========", "STEP")
@@ -68,15 +49,34 @@ class LoginPage(BasePage):
 
                 if i > 1:
                     log("登录", f"正在执行第 {i} 次登录尝试...", "INFO")
-                    # 策略3（物理刷新）每 3 次触发一次，此时需要重填账号密码
-                    use_force_reload = (i % 3 == 0)
-                    self._trigger_captcha_refresh(force_reload=use_force_reload)
-                    need_fill_credentials = use_force_reload
+                    if env != "test":
+                        # local 策略3（物理刷新）每 3 次触发一次，此时需要重填账号密码
+                        use_force_reload = (i % 3 == 0)
+                        self._trigger_captcha_refresh(force_reload=use_force_reload)
+                        need_fill_credentials = use_force_reload
+                    # test 环境的刷新已在失败时处理完毕
 
-                # ========== 等待登录表单就绪 ==========
                 self.page.wait_for_selector("input[placeholder*='用户名']", timeout=10000)
 
-                # ========== 填写用户名和密码（仅首次或物理刷新后） ==========
+                captcha_img = self._get_captcha_img_locator()
+                captcha_img.wait_for(state="visible", timeout=8000)
+                captcha_bytes = captcha_img.screenshot()
+                code = self.ocr.classify(captcha_bytes).lower()
+
+                # 根据环境校验验证码位数
+                if not code or len(code) != captcha_len:
+                    actual_len = len(code) if code else 0
+                    log("登录", f"验证码识别位数不符 (预期 {captcha_len} 位，实际 {actual_len} 位: {code})，正在主动刷新...", "WARN")
+                    
+                    if env == "test":
+                        self.page.reload()
+                        time.sleep(1.5)
+                        need_fill_credentials = True
+                    else:
+                        self._trigger_captcha_refresh()
+                        need_fill_credentials = False
+                    continue
+
                 if need_fill_credentials:
                     user_input = self.page.locator("input[placeholder*='用户名']").first
                     user_input.focus()
@@ -91,21 +91,7 @@ class LoginPage(BasePage):
                     time.sleep(0.5)
                     pwd_input.fill("")
                     pwd_input.fill(Config.get_password(role))
-
-                # ========== 识别并填写验证码 ==========
-                captcha_img = self._get_captcha_img_locator()
-                captcha_img.wait_for(state="visible", timeout=8000)
-                captcha_bytes = captcha_img.screenshot()
-                code = self.ocr.classify(captcha_bytes)
-
-                # 根据环境校验验证码位数
-                if not code or len(code) != captcha_len:
-                    actual_len = len(code) if code else 0
-                    log("登录", f"验证码识别位数不符 (预期 {captcha_len} 位，实际 {actual_len} 位: {code})，正在主动刷新...", "WARN")
-                    self._trigger_captcha_refresh()
-                    # 策略1/2刷新验证码不需要重填账号密码
                     need_fill_credentials = False
-                    continue
 
                 code_input = self.page.locator("input[placeholder*='验证码']").first
                 code_input.focus()
@@ -114,11 +100,9 @@ class LoginPage(BasePage):
                 code_input.fill(code)
                 log("登录", f"正在输入验证码: {code}")
 
-                # ========== 点击登录 ==========
                 login_btn = self.page.locator("#btnSubmit, .lgoinBtn, #loginBtn, .el-button--primary").first
                 login_btn.click()
 
-                # ========== 兜底：处理安全风险弹窗 (仅 test 环境 HTTPS) ==========
                 if env == "test":
                     try:
                         adv_btn = self.page.locator("#details-button, text=高级, text=Advanced")
@@ -130,21 +114,24 @@ class LoginPage(BasePage):
                     except:
                         pass
 
-                # ========== 检查业务报错 ==========
                 try:
-                    error_msg_loc = self.page.locator(".el-message--error, .error, .el-form-item__error").first
+                    error_msg_loc = self.page.locator(".el-message--error, .error, .el-form-item__error, .layui-layer-content").first
                     if error_msg_loc.is_visible(timeout=2000):
                         txt = error_msg_loc.inner_text().strip()
                         log("登录", f"业务报错: {txt}", "WARN")
                         if "验证码" in txt or "错误" in txt:
-                            self._trigger_captcha_refresh()
-                            # 验证码错误只需重新输入验证码
-                            need_fill_credentials = False
+                            if env == "test":
+                                log("登录", "test 环境强制刷新页面...", "WARN")
+                                self.page.reload()
+                                time.sleep(1.5)
+                                need_fill_credentials = True
+                            else:
+                                self._trigger_captcha_refresh()
+                                need_fill_credentials = False
                         continue
                 except:
                     pass
 
-                # ========== 等待登录成功标志 ==========
                 self._wait_for_login_success()
                 return
 
@@ -168,14 +155,7 @@ class LoginPage(BasePage):
         log("登录", "✅ 登录成功，已到达门户首页面！", "OK")
 
     def _trigger_captcha_refresh(self, force_reload=False):
-        """
-        触发验证码刷新动作的兜底策略：
-        1. 优先点击验证码图片本身（最快，local 环境主要方式）
-        2. 其次点击"换一个"等文字（test 环境）
-        3. 如果上述均失效或指定 force_reload，则刷新浏览器页面
-        
-        注意：只有策略3会导致账号密码清空，策略1/2不会
-        """
+        """触发验证码刷新（优先点击图片/文字，兜底刷新页面）"""
         if force_reload:
             log("登录", "触发 [物理刷新浏览器] 策略...", "WARN")
             self.page.reload()
@@ -187,7 +167,7 @@ class LoginPage(BasePage):
             return
 
         try:
-            # 策略 1: 点击"换一个"等文字 (test 环境专属/优先)
+            # 策略1: 点击"换一个"
             refresh_text = self.page.locator("text=换一个, text=看不清, text=刷新, .captcha-refresh").first
             if refresh_text.is_visible(timeout=1000):
                 log("登录", "尝试通过点击 [换一个] 文字刷新...", "INFO")
@@ -195,7 +175,7 @@ class LoginPage(BasePage):
                 time.sleep(1.5)
                 return
 
-            # 策略 2: 点击验证码图片（local 环境常用）
+            # 策略2: 点击验证码图片
             captcha_img = self._get_captcha_img_locator()
             if captcha_img.is_visible(timeout=1500):
                 log("登录", "尝试通过 [点击验证码图片] 刷新...", "INFO")
@@ -203,7 +183,7 @@ class LoginPage(BasePage):
                 time.sleep(1.5)
                 return
 
-            # 策略 3: 页面物理刷新（兜底）
+            # 策略3: 页面刷新
             log("登录", "刷新交互未响应，执行 [页面重载] 兜底...", "WARN")
             self.page.reload()
             time.sleep(2.5)

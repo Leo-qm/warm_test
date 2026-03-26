@@ -160,11 +160,8 @@ class TestDeviceUpdateFlow:
             declaration_page = DeclarationPage(page)
             declaration_page.navigate_to_declaration()
 
-            # 使用身份证号创建设备更新申报
-            update_data = {
-                "is_household": test_data.get("is_household", "是"),
-                "heating_area": test_data.get("heating_area", "100"),
-            }
+            # 使用 DataFactory 生成完整的设备更新表单数据
+            update_data = DataFactory.build_device_update_data()
             update_order_id = declaration_page.create_device_update_record(applicant_id_card, update_data)
             assert update_order_id, "❌ 设备更新申报创建失败"
             log("E2E", f"✅ 设备更新申报创建成功: {update_order_id}", "OK")

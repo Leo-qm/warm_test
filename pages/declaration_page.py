@@ -206,9 +206,10 @@ class DeclarationPage(BasePage):
         
         # 定义弹窗内精确填写方法（避免全局选择器匹配到背景页元素）
         def fill_in_dialog(placeholder_keyword, value, label):
-            """在可见的设备更新弹窗内，通过 placeholder 定位 input 并填值"""
-            filled = self.page.evaluate("""(args) => {
-                const [keyword, val] = args;
+            """在弹窗内通过 placeholder 定位 input 并填值（JS标记 + Playwright原生fill）"""
+            marker = f"device-update-{placeholder_keyword}"
+            found = self.page.evaluate("""(args) => {
+                const [keyword, marker] = args;
                 const wrappers = document.querySelectorAll('.el-dialog__wrapper');
                 for (const wrapper of wrappers) {
                     if (wrapper.style.display === 'none') continue;
@@ -221,23 +222,27 @@ class DeclarationPage(BasePage):
                         if (inp.readOnly || inp.disabled) continue;
                         const ph = inp.placeholder || '';
                         if (ph.includes(keyword)) {
-                            // 先聚焦，再设值，最后触发 input 事件让 Vue 识别
-                            inp.focus();
-                            inp.value = val;
-                            inp.dispatchEvent(new Event('input', {bubbles: true}));
-                            inp.dispatchEvent(new Event('change', {bubbles: true}));
+                            inp.setAttribute('data-auto-marker', marker);
                             return true;
                         }
                     }
-                    return false;  // 弹窗找到了但没匹配到字段
+                    return false;
                 }
                 return false;
-            }""", [placeholder_keyword, value])
-            if filled:
-                log("设备更新", f"  ✅ {label}: {value}")
+            }""", [placeholder_keyword, marker])
+            if found:
+                try:
+                    target = self.page.locator(f"[data-auto-marker='{marker}']").first
+                    target.click(force=True)
+                    target.fill(value)
+                    log("设备更新", f"  ✅ {label}: {value}")
+                    return True
+                except Exception as e:
+                    log("设备更新", f"  ❌ {label}: 填写失败: {e}", "ERROR")
+                    return False
             else:
                 log("设备更新", f"  ❌ {label}: 未在弹窗内找到 '{placeholder_keyword}' 输入框", "ERROR")
-            return filled
+            return False
         
         # 6.1 申请人信息区块
         log("设备更新", ">> [申请人信息] 填写空字段", "STEP")
@@ -246,15 +251,13 @@ class DeclarationPage(BasePage):
         if data.get("heating_area"):
             fill_in_dialog("采暖面积", str(data["heating_area"]), "采暖面积")
         
-        # 6.2 申报类型区块 — 能源类型（下拉）
+        # 6.2 申报类型区块 — 能源类型（下拉，JS标记+Playwright点击）
         log("设备更新", ">> [申报类型] 选择能源类型", "STEP")
         if body:
             body.evaluate("el => el.scrollTop += 400")
             time.sleep(0.5)
         try:
-            # 能源类型是下拉选择，需要用 Playwright 点击交互
-            # 但要用 JS 先定位弹窗内的那个 select input
-            clicked = self.page.evaluate("""() => {
+            marked = self.page.evaluate("""() => {
                 const wrappers = document.querySelectorAll('.el-dialog__wrapper');
                 for (const wrapper of wrappers) {
                     if (wrapper.style.display === 'none') continue;
@@ -266,14 +269,16 @@ class DeclarationPage(BasePage):
                     for (const inp of inputs) {
                         const ph = inp.placeholder || '';
                         if (ph.includes('能源类型')) {
-                            inp.click();
+                            inp.setAttribute('data-auto-marker', 'energy-type-select');
                             return true;
                         }
                     }
                 }
                 return false;
             }""")
-            if clicked:
+            if marked:
+                target = self.page.locator("[data-auto-marker='energy-type-select']").first
+                target.click(force=True)
                 time.sleep(Config.SHORT_WAIT)
                 item = self.page.locator(".el-select-dropdown__item >> visible=true")
                 if item.count() > 0:
@@ -286,7 +291,7 @@ class DeclarationPage(BasePage):
                 log("设备更新", "  ⚠️ 未在弹窗内找到能源类型输入框")
         except Exception as e:
             log("设备更新", f"  ⚠️ 能源类型选择异常: {e}")
-        
+
         # 6.3 基本信息区块（用户编号、门牌号、银行卡号、开户人姓名）
         log("设备更新", ">> [基本信息] 填写空字段", "STEP")
         if body:
@@ -305,7 +310,10 @@ class DeclarationPage(BasePage):
         log("设备更新", ">> [附件] 上传证明材料", "STEP")
         self._upload(body)
         
-        # 7. 滚动到底部并点击「保存并提交」（在弹窗内精确点击）
+        # 7. 提交前校验所有必填字段
+        self._validate_form_completeness()
+        
+        # 8. 滚动到底部并点击「保存并提交」
         log("设备更新", ">> 点击保存并提交", "STEP")
         if body:
             body.evaluate("el => el.scrollTop = el.scrollHeight")
@@ -320,12 +328,11 @@ class DeclarationPage(BasePage):
                     const footer = wrapper.querySelector('.el-dialog__footer') || wrapper.querySelector('.dialog-footer') || wrapper;
                     const btns = footer.querySelectorAll('button');
                     for (const btn of btns) {
-                        if (btn.textContent.trim().includes('保存并') || btn.textContent.trim().includes('保存并提交')) {
+                        if (btn.textContent.trim().includes('保存并提交')) {
                             btn.click();
                             return 'submit';
                         }
                     }
-                    // 退而求其次：找包含'保存'文本的非取消按钮
                     for (const btn of btns) {
                         const txt = btn.textContent.trim();
                         if (txt.includes('保存') && !txt.includes('取消')) {
@@ -344,8 +351,8 @@ class DeclarationPage(BasePage):
         except Exception as e:
             log("设备更新", f"❌ 点击保存按钮异常: {e}", "ERROR")
             return None
-        
-        # 8. 等待保存成功并抓取编号
+
+        # 9. 等待保存成功并抓取编号
         try:
             self.page.wait_for_selector("text=保存成功", timeout=15000)
             log("设备更新", "✅ 保存成功提示已出现")
@@ -384,7 +391,7 @@ class DeclarationPage(BasePage):
 
         log("业务步骤", f"执行 [查询] 申报编号: {order_id}", "STEP")
 
-        # 1. 强力刷新：确保列表态可用
+        # 清除遮挡层
         time.sleep(1.5)
         try:
             masks = [".el-loading-mask", ".v-modal", ".el-dialog__wrapper"]
@@ -404,7 +411,7 @@ class DeclarationPage(BasePage):
         except:
             pass
 
-        # 3. 填充申报编号（使用通用方法，自动适配不同 DOM 结构）
+        # 3. 填充申报编号
         log("查询", f"填充申报编号: {order_id}")
         self.fill_input_by_label("申报编号", order_id)
 
@@ -504,7 +511,7 @@ class DeclarationPage(BasePage):
     # ==================== 内部方法 ====================
 
     def _fill_form_content(self, data):
-        """内部方法：仅负责表单字段填写（不含点击添加和保存）"""
+        """填写设备新增的4个区块表单字段"""
         d = data
 
         # 区块 1: 户主信息
@@ -522,18 +529,54 @@ class DeclarationPage(BasePage):
         self.safe_fill("input[placeholder='请输入申报人姓名']", d["applicant_name"], "申报人姓名")
         self.safe_fill("input[placeholder='请输入申报人身份证号']", d["applicant_id_card"], "申报人身份证号")
         self.safe_fill("input[placeholder='请输入申报人联系电话']", d["applicant_phone"], "申报人联系电话")
-        self.safe_select_first("input[placeholder='请输入户籍信息']", "户籍信息")
+        # 户籍信息使用 .el-form-item filter
+
+        try:
+            fi = self.page.locator(".el-form-item").filter(has_text="户籍信息")
+            inp = fi.locator(".el-input__inner").first
+            if inp.is_visible() and not inp.is_disabled():
+                inp.click()
+                time.sleep(Config.SHORT_WAIT)
+                item = self.page.locator(".el-select-dropdown__item >> visible=true")
+                if item.count() > 0:
+                    item.nth(0).click()
+                    log("表单填写", "✅ 户籍信息: 已选第一项")
+                else:
+                    log("表单填写", "⚠️ 户籍信息: 下拉面板无选项", "WARN")
+
+        except Exception as e:
+
+            log("表单填写", f"⚠️ 户籍信息选择异常: {e}", "WARN")
+
         self.safe_fill("input[placeholder*='采暖面积']", d["heating_area"], "采暖面积")
 
         # 区块 3: 能源类型
+
         log("表单", ">>> [Section 3] 能源类型", "STEP")
         body = self.get_dialog_body()
         if body:
             body.evaluate("el => el.scrollTop += 600")
-        self.safe_select_first("label:has-text('能源类型') + div input", "能源类型")
+        try:
+            fi = self.page.locator(".el-form-item").filter(has_text="能源类型")
+            inp = fi.locator(".el-input__inner").first
+            if inp.is_visible() and not inp.is_disabled():
+                inp.click()
+                time.sleep(Config.SHORT_WAIT)
+                item = self.page.locator(".el-select-dropdown__item >> visible=true")
+                if item.count() > 0:
+                    item.nth(0).click()
+                    log("表单填写", "✅ 能源类型: 已选第一项")
+                else:
+                    log("表单填写", "⚠️ 能源类型: 下拉面板无选项", "WARN")
+        except Exception as e:
+            log("表单填写", f"⚠️ 能源类型选择异常: {e}", "WARN")
+
+
 
         # 区块 4: 基础信息
+
         log("表单", ">>> [Section 4] 基础信息", "STEP")
+
         if body:
             body.evaluate("el => el.scrollTop += 600")
         self.safe_fill("input[placeholder*='用户编号']", d["user_number"], "用户编号")
@@ -542,6 +585,7 @@ class DeclarationPage(BasePage):
 
         # 统一上传附件
         self._upload(body)
+
 
     def _save_form(self):
         """保存表单并捕获新生成的申报编号"""
@@ -583,59 +627,84 @@ class DeclarationPage(BasePage):
     def _upload(self, body):
         """
         统一上传附件
-        滚动整个表单区域，发现所有 file input 并逐一上传
+        寻找当前弹窗内可见的“点击上传”按钮，依次点击并利用事件拦截器填入附件。
         """
-        log("上传", ">>> 执行文件上传策略", "STEP")
+        log("上传", ">>> 执行文件上传策略（点击按钮法）", "STEP")
         test_img = os.path.join(os.getcwd(), "test_upload.png")
         if not os.path.exists(test_img):
             self.page.screenshot(path=test_img)
 
-        # 回到顶部
+        # 回到顶部确保基础视图
         if body:
             body.evaluate("el => el.scrollTop = 0")
-        
-        uploaded = set()
-        prev_count = 0  # 上一轮上传数量，用于检测是否有新增
-        no_new_rounds = 0  # 连续无新增上传的轮次
+            time.sleep(0.5)
 
-        # 恢复完整滚动范围，确保覆盖所有附件区域
-        for pos in range(0, 3001, 400):
-            if body:
-                body.evaluate(f"el => el.scrollTop = {pos}")
-            time.sleep(0.3)
-            
-            inputs = self.page.locator("input[type='file']")
-            total = inputs.count()
-            for i in range(total):
-                if i not in uploaded:
+        try:
+            uploaded_count = 0
+            for attempt in range(25):  # 限制最大打捞次数防止死循环
+                # 重新定位尚未被处理过的第一个可见且包含“点击上传”文本的按钮
+                btn_locator = self.page.locator(".el-dialog__wrapper:not([style*='display: none']) .el-dialog__body button:has-text('点击上传'):not(.uploaded-done)")
+                if btn_locator.count() == 0:
+                    break
+                
+                btn = btn_locator.first
+                btn.scroll_into_view_if_needed()
+                time.sleep(0.5)
+                
+                try:
+                    with self.page.expect_file_chooser(timeout=3000) as fc_info:
+                        btn.click()
+                    fc_info.value.set_files(test_img)
+                    uploaded_count += 1
+                    log("上传", f"✅ 成功填入第 {uploaded_count} 个附件")
+                    time.sleep(1.5)  # 等待组件响应与界面重排
+                except Exception as e:
+                    log("上传", f"⚠️ 附件交互异常，跳过该节点: {e}", "WARN")
+                finally:
+                    # 无论成败，在 DOM 上注上标记，下次查询 locator 将自动将其剔除
                     try:
-                        inputs.nth(i).set_input_files(test_img)
-                        uploaded.add(i)
+                        btn.evaluate("node => node.classList.add('uploaded-done')")
                     except:
                         pass
-            
-            # 检查是否有新增上传
-            if len(uploaded) == prev_count:
-                no_new_rounds += 1
-            else:
-                no_new_rounds = 0
-                prev_count = len(uploaded)
-            
-            # 连续 3 轮无新增 且 已有上传 → 提前退出
-            if no_new_rounds >= 3 and len(uploaded) > 0:
-                break
+                        
+            log("上传", f"✅ 共成功处理了 {uploaded_count} 个附件上传入口", "OK")
+        except Exception as e:
+            log("上传", f"❌ 执行集中上传策略失败: {e}", "ERROR")
 
-        # 二次验证：回到顶部再扫一次，确保不遗漏
-        if body:
-            body.evaluate("el => el.scrollTop = 0")
-            time.sleep(0.3)
-        remaining = self.page.locator("input[type='file']")
-        for i in range(remaining.count()):
-            if i not in uploaded:
-                try:
-                    remaining.nth(i).set_input_files(test_img)
-                    uploaded.add(i)
-                except:
-                    pass
+    def _validate_form_completeness(self):
+        """提交前校验：遍历弹窗内所有必填字段，检查空值和未上传附件"""
+        log("表单", ">>> 提交前置校验：正在核实所有必填字段完整性...", "STEP")
+        missing_msg = self.page.evaluate("""() => {
+            const wrappers = document.querySelectorAll('.el-dialog__wrapper');
+            for (const wrapper of wrappers) {
+                if (wrapper.style.display === 'none') continue;
+                const items = wrapper.querySelectorAll('.el-form-item.is-required');
+                for (const item of items) {
+                    const label = (item.querySelector('.el-form-item__label') || {innerText: '未知字段'}).innerText.trim();
+                    const uploadBtn = item.querySelector('button');
+                    if (uploadBtn && uploadBtn.innerText.includes('点击上传') && !uploadBtn.classList.contains('uploaded-done')) {
+                        return '附件缺失 (' + label + ')';
+                    }
+                    const uploadContainer = item.querySelector('.el-upload');
+                    if (uploadContainer) {
+                        const fileList = item.querySelectorAll('.el-upload-list__item, img');
+                        if (fileList.length === 0) {
+                            return '附件缺失 (' + label + ')';
+                        }
+                    }
+                    const inp = item.querySelector('input');
+                    if (inp && !inp.readOnly && !inp.disabled) {
+                        if (inp.type === 'radio' || inp.type === 'checkbox') {
+                        } else if (!inp.value.trim()) {
+                            return '文本缺失 (' + label + ')';
+                        }
+                    }
+                }
+            }
+            return null;
+        }""")
 
-        log("上传", f"✅ 已上传 {len(uploaded)} 个文件", "OK")
+        if missing_msg:
+            log("表单", f"⚠️ 前置校验发现问题: {missing_msg}", "WARN")
+        else:
+            log("表单", "✅ 前置校验通过，所有的必填字段目前皆已覆盖妥当", "OK")

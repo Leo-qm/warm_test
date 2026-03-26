@@ -1,11 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-台账管理页面封装
-设计模式：
-  - 弹窗内下拉/日期使用 Playwright click(force=True) 绕过遮挡层并正确触发 Vue 事件
-  - 文本字段使用 fill_input_by_label 精确匹配标签文本
-  - 级联下拉严格按顺序执行并用较长等待确保选项加载
-"""
+"""台账管理页面封装 — 台账查询、补贴申报与导出功能"""
 import os
 import time
 from pages.base_page import BasePage
@@ -165,24 +159,7 @@ class LedgerPage(BasePage):
 
     # ==================== 补贴申报表单填写 ====================
     def fill_subsidy_declaration(self, data):
-        """
-        填写补贴申报表单（弹窗：补贴申报材料上传）
-
-        表单布局（基于实际截图确认）：
-        设备信息区：
-          Row1: 购置金额(input) | 设备型号(select,依赖设备类型)
-          Row2: 预计补贴(自动算) | 能耗级别(select)
-          Row3: 设备厂家(select) | 质保日期(date)
-          Row4: 设备类型(select,依赖设备厂家) | 发票号码(input)
-        安装信息区：
-          Row5: 安装日期(date) | 安装人员(input)
-          Row6: 安装人员联系电话(input)
-
-        核心修复：
-        1. 下拉用 Playwright click(force=True) 代替 JS click（确保 Vue 事件触发）
-        2. 级联等待增加到 2 秒确保选项从服务端加载
-        3. 标签匹配使用精确匹配避免"安装人员"误匹配"安装人员联系电话"
-        """
+        """填写补贴申报表单（设备信息 + 安装信息 + 附件上传 + 提交）"""
         log("业务步骤", ">>> 正在填写补贴申报表单内容", "STEP")
         d = data
         try:
@@ -201,12 +178,12 @@ class LedgerPage(BasePage):
             # 1. 购置金额
             self.fill_input_by_label("购置金额", d.get("purchase_amount", "3000"))
 
-            # 2. 级联下拉：设备厂家 → 设备类型 → 设备型号（每步等 2 秒让选项加载）
+            # 2. 级联下拉：设备厂家 → 设备类型 → 设备型号
             self._select_dropdown("设备厂家")
-            time.sleep(2)  # 等待设备类型选项从服务端加载
+            time.sleep(2)
 
             self._select_dropdown("设备类型")
-            time.sleep(2)  # 等待设备型号选项从服务端加载
+            time.sleep(2)
 
             self._select_dropdown("设备型号")
             time.sleep(1)
@@ -224,7 +201,7 @@ class LedgerPage(BasePage):
             # 6. 安装日期
             self._pick_date("安装日期")
 
-            # 7. 安装人员（精确匹配，避免匹配到"安装人员联系电话"）
+            # 7. 安装人员
             self.fill_input_by_label("安装人员", d.get("installer_name", "张师傅"), exact=True)
 
             # 8. 安装人员联系电话
@@ -265,29 +242,45 @@ class LedgerPage(BasePage):
             except Exception as e:
                 log("表单填写", f"⚠️ 特殊补贴信息处理异常: {e}", "WARN")
 
-            # === 附件上传 ===
+            # === 附件上传（打标法） ===
             try:
                 test_img = os.path.join(os.getcwd(), "test_upload.png")
-                if os.path.exists(test_img):
-                    inputs = self.page.locator("input[type='file']")
-                    for i in range(inputs.count()):
+                if not os.path.exists(test_img):
+                    self.page.screenshot(path=test_img)
+                
+                uploaded_count = 0
+                for attempt in range(25):
+                    btn_locator = self.page.locator(".el-dialog__wrapper:not([style*='display: none']) .el-dialog__body button:has-text('点击上传'):not(.uploaded-done)")
+                    if btn_locator.count() == 0:
+                        break
+                    btn = btn_locator.first
+                    btn.scroll_into_view_if_needed()
+                    time.sleep(0.5)
+                    try:
+                        with self.page.expect_file_chooser(timeout=3000) as fc_info:
+                            btn.click()
+                        fc_info.value.set_files(test_img)
+                        uploaded_count += 1
+                        log("补贴申报", f"✅ 成功填入第 {uploaded_count} 个附件")
+                        time.sleep(1.5)
+                    except Exception as e:
+                        log("补贴申报", f"⚠️ 附件交互异常: {e}", "WARN")
+                    finally:
                         try:
-                            inputs.nth(i).set_input_files(test_img)
+                            btn.evaluate("node => node.classList.add('uploaded-done')")
                         except:
                             pass
-                    if inputs.count() > 0:
-                        log("补贴申报", f"已上传 {inputs.count()} 个附件")
-            except:
-                pass
+                log("补贴申报", f"✅ 共成功处理了 {uploaded_count} 个附件上传入口", "OK")
+            except Exception as e:
+                log("补贴申报", f"⚠️ 附件上传异常: {e}", "WARN")
 
 
-            # === 提交前校验：检查弹窗内所有必填字段是否已填写，并收集实际值 ===
+            # === 提交前校验 ===
             empty_fields = []
-            actual_values = {}  # 收集实际表单值用于日志
+            actual_values = {}
             check_fields = ["购置金额", "设备厂家", "设备类型", "设备型号",
                             "能耗级别", "质保日期", "发票号码",
                             "安装日期", "安装人员", "安装人员联系电话"]
-            # 限定在弹窗内搜索（避免匹配主页面的空字段）
             dialog = self.page.locator(".el-dialog__body").first
             for field_name in check_fields:
                 try:
@@ -301,7 +294,7 @@ class LedgerPage(BasePage):
                 except:
                     empty_fields.append(field_name)
 
-            # 额外读取"预计补贴"（只读自动计算字段）
+            # 读取"预计补贴"
             try:
                 subsidy_fi = dialog.locator(".el-form-item").filter(has_text="预计补贴")
                 subsidy_inp = subsidy_fi.locator(".el-input__inner").first
@@ -316,7 +309,7 @@ class LedgerPage(BasePage):
             else:
                 log("补贴申报", "✅ 所有必填字段已填写", "OK")
 
-            # === 滚动弹窗到底部确保"保存并提交"按钮可见 ===
+            # === 滚动弹窗到底部 ===
             try:
                 self.page.evaluate("""() => {
                     document.querySelectorAll('.el-dialog__body').forEach(b => {
@@ -348,13 +341,12 @@ class LedgerPage(BasePage):
             except:
                 pass
 
-            # === 检测错误提示（必填项未填时系统会弹出红色提示或表单红框） ===
+            # === 检测错误提示 ===
             error_msg = self.page.locator(".el-message--error, .el-message-box__message")
             try:
                 if error_msg.first.is_visible(timeout=2000):
                     err_text = error_msg.first.inner_text()
                     log("补贴申报", f"❌ 提交失败，系统提示: {err_text}", "ERROR")
-                    # 尝试关闭错误弹窗
                     try:
                         self.page.locator(".el-message-box__btns button").first.click()
                     except:
@@ -372,7 +364,7 @@ class LedgerPage(BasePage):
             except:
                 pass
 
-            # 弹窗是否已关闭（提交成功后弹窗会自动关闭）
+            # 弹窗是否已关闭
             try:
                 dialog = self.page.locator(".el-dialog__wrapper[style*='display']")
                 if dialog.count() == 0 or not dialog.first.is_visible(timeout=3000):
@@ -389,19 +381,7 @@ class LedgerPage(BasePage):
 
     # ==================== 弹窗内操作工具方法 ====================
     def _select_dropdown(self, label_text):
-        """
-        【键盘选择策略】
-        
-        核心方案（后续所有下拉选择都应遵循）：
-        1. 用 .el-form-item__label 精确匹配标签（不匹配 placeholder 子串）
-        2. Playwright click(force=True) 打开下拉框
-        3. 键盘 ArrowDown + Enter 选择第一项（走 Element UI 内置事件链）
-        
-        为什么用键盘而不是 JS click：
-        - Element UI el-select 的选项通过组件内部事件触发 v-model 更新
-        - JS item.click() 不一定能完整触发 Vue 级联响应
-        - 键盘操作走组件内置 handleKeyDown，确保 v-model 更新 + 级联触发
-        """
+        """通过键盘 ArrowDown+Enter 选择下拉第一项（确保触发 Vue 级联）"""
         try:
             form_item = self.page.locator(".el-form-item").filter(
                 has=self.page.locator(".el-form-item__label", has_text=label_text)
@@ -413,17 +393,14 @@ class LedgerPage(BasePage):
                 log("表单填写", f"⚠️ {label_text}: 输入框被禁用（可能上级未选）", "WARN")
                 return
 
-            # Playwright 点击打开下拉框
             select_input.click(force=True)
             time.sleep(1)
 
-            # 键盘选择第一项：ArrowDown 高亮第一个选项，Enter 确认选择
             self.page.keyboard.press("ArrowDown")
             time.sleep(0.3)
             self.page.keyboard.press("Enter")
             time.sleep(0.5)
 
-            # 验证是否选择成功（读取 input 的 value）
             val = select_input.input_value()
             if val and val.strip():
                 log("表单填写", f"✅ {label_text}: 已选 [{val}]")
@@ -433,10 +410,7 @@ class LedgerPage(BasePage):
             log_err("表单填写", f"{label_text} 下拉选择失败", e)
 
     def _pick_date(self, label_text):
-        """
-        【Playwright 原生日期选择】
-        使用 Playwright click(force=True) 打开日期面板，选择"今天"。
-        """
+        """打开日期面板并选择今天"""
         try:
             form_item = self.page.locator(
                 f".el-form-item"

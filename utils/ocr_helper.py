@@ -18,7 +18,7 @@ class OCRHelper:
         初始化 OCR 引擎
         关闭 ddddocr 的广告输出，保持控制台整洁。
         """
-        self.ocr = ddddocr.DdddOcr(show_ad=False)
+        self.ocr = ddddocr.DdddOcr(show_ad=False, beta=True)
 
     def classify(self, image_bytes: bytes) -> str:
         """
@@ -26,7 +26,7 @@ class OCRHelper:
         :param image_bytes: 图片的二进制数据 (bytes)
         :return: 识别出的验证码文本内容 (str)
         """
-        code = self.ocr.classification(image_bytes)
+        code = self.ocr.classification(image_bytes).lower()
         log("OCR", f"识别结果: {code}")
         return code
 
