@@ -83,6 +83,7 @@ class TestDeviceAddFlow:
         log("E2E", "=" * 60, "STEP")
         log("E2E", "  设备新增全链路流程测试 启动", "STEP")
         log("E2E", f"  测试数据: 户主={test_data['household_name']}", "STEP")
+        log("E2E", f"  是否户主: {is_household}", "STEP")
         log("E2E", f"  特殊补贴: {special_subsidy}", "STEP")
         log("E2E", "=" * 60, "STEP")
 
