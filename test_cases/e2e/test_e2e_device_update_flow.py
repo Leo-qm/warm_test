@@ -69,6 +69,8 @@ class TestDeviceUpdateFlow:
         update_order_id = None      # 设备更新生成的新申报编号
         # 直接使用户主身份证号关联设备更新，无需从台账二次获取
         household_id_card = test_data["id_card"]
+        # 用户编号在整个业务周期中唯一不变，用于台账/审核搜索
+        user_number = test_data["user_number"]
 
         log("E2E", "=" * 60, "STEP")
         log("E2E", "  设备更新全链路业务流程测试 启动", "STEP")
@@ -76,6 +78,7 @@ class TestDeviceUpdateFlow:
         log("E2E", f"  是否户主: {is_household}", "STEP")
         log("E2E", f"  特殊补贴: {special_subsidy}", "STEP")
         log("E2E", f"  户主身份证号: {household_id_card}", "STEP")
+        log("E2E", f"  用户编号: {user_number}", "STEP")
         log("E2E", "=" * 60, "STEP")
 
         # ==================== 前置：设备新增全流程 ====================
@@ -98,9 +101,9 @@ class TestDeviceUpdateFlow:
             audit_page = AuditPage(page)
             audit_page.navigate_to_audit()
 
-            result = audit_page.perform_approve(original_order_id, comment="自动化测试：设备新增审核通过")
-            assert result, f"❌ 前置条件失败：设备新增 [{original_order_id}] 审核失败"
-            log("E2E", f"✅ 设备新增 [{original_order_id}] 审核通过，数据已入台账", "OK")
+            result = audit_page.perform_approve(user_number, comment="自动化测试：设备新增审核通过")
+            assert result, f"❌ 前置条件失败：设备新增 [{user_number}] 审核失败"
+            log("E2E", f"✅ 设备新增 [{user_number}] 审核通过，数据已入台账", "OK")
 
         with allure.step("前置 - 步骤3: 村级用户发起设备新增补贴申报"):
             log("E2E", ">>> [前置-步骤3] 村级用户：发起设备新增补贴申报 <<<", "STEP")
@@ -109,9 +112,9 @@ class TestDeviceUpdateFlow:
             ledger_page = LedgerPage(page)
             ledger_page.navigate_to_ledger()
 
-            started = ledger_page.start_subsidy_declaration(original_order_id)
-            assert started, f"❌ 前置条件失败：未能发起 [{original_order_id}] 的补贴申报"
-            log("E2E", f"✅ 已进入 [{original_order_id}] 的补贴申报表单", "OK")
+            started = ledger_page.start_subsidy_declaration(user_number)
+            assert started, f"❌ 前置条件失败：未能发起 [{user_number}] 的补贴申报"
+            log("E2E", f"✅ 已进入 [{user_number}] 的补贴申报表单", "OK")
 
         with allure.step("前置 - 步骤3: 填写并提交补贴表单"):
             log("E2E", ">>> [前置-步骤3] 填写设备新增补贴申报表单 <<<", "STEP")
@@ -137,9 +140,9 @@ class TestDeviceUpdateFlow:
             audit_page = AuditPage(page)
             audit_page.navigate_to_audit()
 
-            result = audit_page.perform_approve(original_order_id, comment="自动化测试：设备新增补贴审核通过")
-            assert result, f"❌ 前置条件失败：设备新增补贴 [{original_order_id}] 审核失败"
-            log("E2E", f"✅ 设备新增补贴 [{original_order_id}] 审核通过，前置流程完成", "OK")
+            result = audit_page.perform_approve(user_number, comment="自动化测试：设备新增补贴审核通过")
+            assert result, f"❌ 前置条件失败：设备新增补贴 [{user_number}] 审核失败"
+            log("E2E", f"✅ 设备新增补贴 [{user_number}] 审核通过，前置流程完成", "OK")
 
         # ==================== 步骤1：村级用户设备更新申报 ====================
 
@@ -164,9 +167,9 @@ class TestDeviceUpdateFlow:
             audit_page = AuditPage(page)
             audit_page.navigate_to_audit()
 
-            result = audit_page.perform_approve(update_order_id, comment="自动化测试：设备更新审核通过")
-            assert result, f"❌ 镇级用户审核设备更新 [{update_order_id}] 失败"
-            log("E2E", f"✅ 设备更新 [{update_order_id}] 审核通过，数据进入台账", "OK")
+            result = audit_page.perform_approve(user_number, comment="自动化测试：设备更新审核通过")
+            assert result, f"❌ 镇级用户审核设备更新 [{user_number}] 失败"
+            log("E2E", f"✅ 设备更新 [{user_number}] 审核通过，数据进入台账", "OK")
 
         # ==================== 步骤3：村级用户补贴申报 ====================
 
@@ -177,9 +180,9 @@ class TestDeviceUpdateFlow:
             ledger_page = LedgerPage(page)
             ledger_page.navigate_to_ledger()
 
-            started = ledger_page.start_subsidy_declaration(update_order_id)
-            assert started, f"❌ 在台账中未能发起 [{update_order_id}] 的补贴申报"
-            log("E2E", f"✅ 已进入 [{update_order_id}] 的补贴申报表单", "OK")
+            started = ledger_page.start_subsidy_declaration(user_number)
+            assert started, f"❌ 在台账中未能发起 [{user_number}] 的补贴申报"
+            log("E2E", f"✅ 已进入 [{user_number}] 的补贴申报表单", "OK")
 
         with allure.step("步骤3: 填写并提交补贴表单"):
             log("E2E", ">>> [步骤3] 填写补贴申报表单 <<<", "STEP")
@@ -208,14 +211,15 @@ class TestDeviceUpdateFlow:
             audit_page = AuditPage(page)
             audit_page.navigate_to_audit()
 
-            result = audit_page.perform_approve(update_order_id, comment="自动化测试：设备更新补贴审核通过")
-            assert result, f"❌ 镇级用户补贴审核 [{update_order_id}] 失败"
-            log("E2E", f"✅ 设备更新补贴 [{update_order_id}] 已审核通过", "OK")
+            result = audit_page.perform_approve(user_number, comment="自动化测试：设备更新补贴审核通过")
+            assert result, f"❌ 镇级用户补贴审核 [{user_number}] 失败"
+            log("E2E", f"✅ 设备更新补贴 [{user_number}] 已审核通过", "OK")
 
         # ==================== 流程结束 ====================
         device_info = f"{form_result.get('设备厂家', '-')}-{form_result.get('设备类型', '-')}-{form_result.get('设备型号', '-')}"
         log("E2E", "=" * 60, "OK")
         log("E2E", f"  🎉 设备更新全链路测试通过！", "OK")
+        log("E2E", f"  用户编号: {user_number}", "OK")
         log("E2E", f"  原始设备新增编号: {original_order_id}", "OK")
         log("E2E", f"  设备更新编号: {update_order_id}", "OK")
         log("E2E", f"  户主身份证号: {household_id_card}", "OK")

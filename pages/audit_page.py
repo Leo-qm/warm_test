@@ -97,19 +97,19 @@ class AuditPage(BasePage):
             log_err("筛选", f"设置申报状态筛选失败", e)
         return False
 
-    def search_by_order_id(self, order_id, status_filter=None):
+    def search_by_user_number(self, user_number, status_filter=None):
         """
-        通过申报编号搜索记录
+        通过用户编号搜索记录（用户编号在整个业务周期中唯一不变）
         
         Args:
-            order_id: 申报编号
+            user_number: 用户编号
             status_filter: 可选，设置申报状态筛选（如 "补贴审核"）
         """
-        if not order_id:
-            log("查询", "❌ 错误: 申报编号为空", "ERROR")
+        if not user_number:
+            log("查询", "❌ 错误: 用户编号为空", "ERROR")
             return False
 
-        log("业务步骤", f"执行 [查询] 申报审核列表，编号: {order_id}", "STEP")
+        log("业务步骤", f"执行 [查询] 申报审核列表，用户编号: {user_number}", "STEP")
 
         # 点击重置
         try:
@@ -124,8 +124,8 @@ class AuditPage(BasePage):
         if status_filter:
             self._set_status_filter(status_filter)
 
-        # 通过通用方法填充申报编号
-        self.fill_input_by_label("申报编号", order_id)
+        # 通过通用方法填充用户编号
+        self.fill_input_by_label("用户编号", user_number)
         time.sleep(0.5)
 
         # 搜索并重试（如果列表为空，刷新页面重新搜索，最多 3 次）
@@ -135,14 +135,14 @@ class AuditPage(BasePage):
 
             try:
                 row = self.page.locator("table.el-table__body tr").first
-                if order_id in row.inner_text():
-                    log("查询", f"✅ 成功定位到待审核记录: {order_id}", "OK")
+                if user_number in row.inner_text():
+                    log("查询", f"✅ 成功定位到待审核记录: {user_number}", "OK")
                     return True
             except:
                 pass
 
             if attempt < 3:
-                log("查询", f"未找到 {order_id}，刷新页面重试 (第 {attempt} 次)...", "WARN")
+                log("查询", f"未找到 {user_number}，刷新页面重试 (第 {attempt} 次)...", "WARN")
                 self.page.reload()
                 time.sleep(Config.LONG_WAIT)
                 try:
@@ -150,16 +150,16 @@ class AuditPage(BasePage):
                 except:
                     pass
                 # 重新填写搜索条件
-                self.fill_input_by_label("申报编号", order_id)
+                self.fill_input_by_label("用户编号", user_number)
                 time.sleep(0.5)
 
-        log("查询", f"❌ 多次刷新后仍未找到待审核记录: {order_id}", "ERROR")
+        log("查询", f"❌ 多次刷新后仍未找到待审核记录: {user_number}", "ERROR")
         return False
 
-    def click_audit_button(self, order_id, status_filter=None):
+    def click_audit_button(self, user_number, status_filter=None):
         """点击指定行的"审核"按钮"""
-        if self.search_by_order_id(order_id, status_filter=status_filter):
-            log("审核", f"点击 [{order_id}] 的审核按钮")
+        if self.search_by_user_number(user_number, status_filter=status_filter):
+            log("审核", f"点击 [{user_number}] 的审核按钮")
             audit_btn = self.page.locator(
                 "table.el-table__body tr"
             ).first.locator("button:has-text('审核')")
@@ -169,20 +169,20 @@ class AuditPage(BasePage):
                 return True
         return False
 
-    def perform_approve(self, order_id, comment="测试通过", status_filter=None):
+    def perform_approve(self, user_number, comment="测试通过", status_filter=None):
         """
         执行审核通过操作
         
         Args:
-            order_id: 申报编号
+            user_number: 用户编号
             comment: 审核意见
             status_filter: 可选，申报状态筛选（第二阶段传 "补贴审核"）
         
         审核弹窗操作路径：
         点击"全部置为通过状态" → 点击"保存并提交"
         """
-        log("业务步骤", f"执行 [审核通过] 流程，编号: {order_id}", "STEP")
-        if not self.click_audit_button(order_id, status_filter=status_filter):
+        log("业务步骤", f"执行 [审核通过] 流程，用户编号: {user_number}", "STEP")
+        if not self.click_audit_button(user_number, status_filter=status_filter):
             return False
 
         try:
@@ -243,8 +243,8 @@ class AuditPage(BasePage):
             except:
                 pass
 
-            log("审核", f"✅ 记录 [{order_id}] 审核通过完成", "OK")
+            log("审核", f"✅ 用户编号 [{user_number}] 审核通过完成", "OK")
             return True
         except Exception as e:
-            log_err("审核", f"审核通过操作异常: {order_id}", e)
+            log_err("审核", f"审核通过操作异常: {user_number}", e)
             return False

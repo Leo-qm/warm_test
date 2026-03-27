@@ -250,6 +250,9 @@ class DeclarationPage(BasePage):
             fill_in_dialog("申报人联系电话", data["applicant_phone"], "申报人联系电话")
         if data.get("heating_area"):
             fill_in_dialog("采暖面积", str(data["heating_area"]), "采暖面积")
+
+        # 户籍信息（树形下拉，需逐级展开到村级）
+        self._select_huji_to_village()
         
         # 6.2 申报类型区块 — 能源类型（下拉，JS标记+Playwright点击）
         log("设备更新", ">> [申报类型] 选择能源类型", "STEP")
@@ -529,24 +532,8 @@ class DeclarationPage(BasePage):
         self.safe_fill("input[placeholder='请输入申报人姓名']", d["applicant_name"], "申报人姓名")
         self.safe_fill("input[placeholder='请输入申报人身份证号']", d["applicant_id_card"], "申报人身份证号")
         self.safe_fill("input[placeholder='请输入申报人联系电话']", d["applicant_phone"], "申报人联系电话")
-        # 户籍信息使用 .el-form-item filter
-
-        try:
-            fi = self.page.locator(".el-form-item").filter(has_text="户籍信息")
-            inp = fi.locator(".el-input__inner").first
-            if inp.is_visible() and not inp.is_disabled():
-                inp.click()
-                time.sleep(Config.SHORT_WAIT)
-                item = self.page.locator(".el-select-dropdown__item >> visible=true")
-                if item.count() > 0:
-                    item.nth(0).click()
-                    log("表单填写", "✅ 户籍信息: 已选第一项")
-                else:
-                    log("表单填写", "⚠️ 户籍信息: 下拉面板无选项", "WARN")
-
-        except Exception as e:
-
-            log("表单填写", f"⚠️ 户籍信息选择异常: {e}", "WARN")
+        # 户籍信息（树形下拉，需逐级展开到村级）
+        self._select_huji_to_village()
 
         self.safe_fill("input[placeholder*='采暖面积']", d["heating_area"], "采暖面积")
 
@@ -708,3 +695,91 @@ class DeclarationPage(BasePage):
             log("表单", f"⚠️ 前置校验发现问题: {missing_msg}", "WARN")
         else:
             log("表单", "✅ 前置校验通过，所有的必填字段目前皆已覆盖妥当", "OK")
+
+    def _select_huji_to_village(self):
+        """选择户籍信息树形下拉到村级节点（5级区划：省→市→区→镇→村）
+
+        限定在可见弹窗内搜索，逐级展开树节点直到出现叶子节点（村），然后点击选中。
+        """
+        log("表单填写", ">> [户籍信息] 选择到村级", "STEP")
+        try:
+            # 限定在可见弹窗内搜索（避免匹配到背景页面元素）
+            dialog = self.page.locator(
+                ".el-dialog__wrapper:not([style*='display: none']) .el-dialog__body"
+            ).first
+            fi = dialog.locator(".el-form-item").filter(has_text="户籍信息")
+
+            if fi.count() == 0:
+                log("表单填写", "⚠️ 户籍信息: 弹窗内未找到该表单项", "WARN")
+                return
+
+            inp = fi.locator(".el-input__inner").first
+
+            # 滚动到可见位置
+            try:
+                inp.scroll_into_view_if_needed()
+                time.sleep(0.5)
+            except:
+                pass
+
+            if not inp.is_visible(timeout=3000):
+                log("表单填写", "⚠️ 户籍信息: 输入框不可见", "WARN")
+                return
+
+            is_disabled = inp.evaluate("el => el.disabled || el.readOnly")
+            if is_disabled:
+                log("表单填写", "⚠️ 户籍信息: 输入框被禁用", "WARN")
+                return
+
+            # 点击打开树形下拉面板
+            inp.click(force=True)
+            time.sleep(1.5)
+            log("表单填写", "  户籍信息: 已点击输入框，等待树面板加载")
+
+            # 逐级展开（最多5层：省→市→区→镇→村）
+            for depth in range(5):
+                clicked = self.page.evaluate("""() => {
+                    const icons = document.querySelectorAll(
+                        '.el-tree-node__expand-icon:not(.is-leaf):not(.expanded)'
+                    );
+                    for (const icon of icons) {
+                        if (icon.offsetParent !== null) {
+                            icon.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }""")
+                if clicked:
+                    time.sleep(0.8)
+                    log("表单填写", f"  户籍信息: 展开第 {depth + 1} 层")
+                else:
+                    break
+
+            # 点击第一个叶子节点（村级）
+            leaf_name = self.page.evaluate("""() => {
+                const icons = document.querySelectorAll(
+                    '.el-tree-node__expand-icon.is-leaf'
+                );
+                for (const icon of icons) {
+                    if (icon.offsetParent !== null) {
+                        const content = icon.closest('.el-tree-node__content');
+                        const label = content
+                            ? content.querySelector('.el-tree-node__label')
+                            : null;
+                        if (content) {
+                            content.click();
+                            return label ? label.textContent.trim() : '(unknown)';
+                        }
+                    }
+                }
+                return null;
+            }""")
+
+            if leaf_name:
+                time.sleep(Config.SHORT_WAIT)
+                log("表单填写", f"✅ 户籍信息: 已选 [{leaf_name}]")
+            else:
+                log("表单填写", "⚠️ 户籍信息: 未找到村级叶子节点", "WARN")
+        except Exception as e:
+            log("表单填写", f"⚠️ 户籍信息选择异常: {e}", "WARN")

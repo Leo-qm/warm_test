@@ -79,12 +79,15 @@ class TestDeviceAddFlow:
         role_mgr = RoleManager(page, ocr_engine)
         test_data = DataFactory.build_test_data()
         order_id = None  # 全流程共享的申报编号
+        # 用户编号在整个业务周期中唯一不变，用于台账/审核搜索
+        user_number = test_data["user_number"]
 
         log("E2E", "=" * 60, "STEP")
         log("E2E", "  设备新增全链路流程测试 启动", "STEP")
         log("E2E", f"  测试数据: 户主={test_data['household_name']}", "STEP")
         log("E2E", f"  是否户主: {is_household}", "STEP")
         log("E2E", f"  特殊补贴: {special_subsidy}", "STEP")
+        log("E2E", f"  用户编号: {user_number}", "STEP")
         log("E2E", "=" * 60, "STEP")
 
         # ==================== 第一阶段：资格申报与审核 ====================
@@ -116,10 +119,10 @@ class TestDeviceAddFlow:
             audit_page = AuditPage(page)
             audit_page.navigate_to_audit()
 
-            # 执行审核通过
-            result = audit_page.perform_approve(order_id, comment="自动化测试：设备新增审核通过")
-            assert result, f"❌ 镇级用户审核设备新增 [{order_id}] 失败"
-            log("E2E", f"✅ 第一阶段完成：设备新增 [{order_id}] 已审核通过，数据进入台账", "OK")
+            # 执行审核通过（使用 user_number 搜索）
+            result = audit_page.perform_approve(user_number, comment="自动化测试：设备新增审核通过")
+            assert result, f"❌ 镇级用户审核设备新增 [{user_number}] 失败"
+            log("E2E", f"✅ 第一阶段完成：设备新增 [{user_number}] 已审核通过，数据进入台账", "OK")
 
         # ==================== 第二阶段：补贴申报与审核 ====================
 
@@ -131,10 +134,10 @@ class TestDeviceAddFlow:
             ledger_page = LedgerPage(page)
             ledger_page.navigate_to_ledger()
 
-            # 在台账中找到记录并发起补贴申报
-            started = ledger_page.start_subsidy_declaration(order_id)
-            assert started, f"❌ 在台账中未能发起 [{order_id}] 的补贴申报"
-            log("E2E", f"✅ 已成功进入 [{order_id}] 的补贴申报表单", "OK")
+            # 在台账中通过用户编号找到记录并发起补贴申报
+            started = ledger_page.start_subsidy_declaration(user_number)
+            assert started, f"❌ 在台账中未能发起 [{user_number}] 的补贴申报"
+            log("E2E", f"✅ 已成功进入 [{user_number}] 的补贴申报表单", "OK")
 
         with allure.step(f"第二阶段 - 步骤2: 填写补贴表单 (特殊补贴={special_subsidy})"):
             log("E2E", f">>> [阶段2-步骤2] 填写补贴申报表单 (特殊补贴={special_subsidy}) <<<", "STEP")
@@ -164,15 +167,15 @@ class TestDeviceAddFlow:
             audit_page = AuditPage(page)
             audit_page.navigate_to_audit()
 
-            # 执行补贴审核通过
-            result = audit_page.perform_approve(order_id, comment="自动化测试：补贴审核通过")
-            assert result, f"❌ 镇级用户补贴审核 [{order_id}] 失败"
-            log("E2E", f"✅ 第二阶段完成：补贴申报 [{order_id}] 已审核通过", "OK")
+            # 执行补贴审核通过（使用 user_number 搜索）
+            result = audit_page.perform_approve(user_number, comment="自动化测试：补贴审核通过")
+            assert result, f"❌ 镇级用户补贴审核 [{user_number}] 失败"
+            log("E2E", f"✅ 第二阶段完成：补贴申报 [{user_number}] 已审核通过", "OK")
 
         # ==================== 流程结束 ====================
         device_info = f"{form_result.get('设备厂家', '-')}-{form_result.get('设备类型', '-')}-{form_result.get('设备型号', '-')}"
         log("E2E", "=" * 60, "OK")
-        log("E2E", f"  🎉 设备新增全链路测试通过！申报编号: {order_id}", "OK")
+        log("E2E", f"  🎉 设备新增全链路测试通过！用户编号: {user_number}, 申报编号: {order_id}", "OK")
         log("E2E", f"  户主: {test_data['household_name']}", "OK")
         log("E2E", f"  设备: {device_info}", "OK")
         log("E2E", f"  购置金额: ¥{form_result.get('购置金额', '-')}", "OK")

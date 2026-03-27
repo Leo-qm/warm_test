@@ -29,37 +29,37 @@ class LedgerPage(BasePage):
         log("导航", "✅ 已进入设备申报台账管理页面", "OK")
 
     # ==================== 台账查询 ====================
-    def search_by_order_id(self, order_id):
-        """通过申报编号搜索台账记录"""
-        if not order_id:
+    def search_by_user_number(self, user_number):
+        """通过用户编号搜索台账记录（用户编号在整个业务周期中唯一不变）"""
+        if not user_number:
             return False
 
-        log("业务步骤", f"执行 [台账查询] 申报编号: {order_id}", "STEP")
+        log("业务步骤", f"执行 [台账查询] 用户编号: {user_number}", "STEP")
         try:
             self.page.click("button:has-text('重置')", timeout=2000)
             time.sleep(Config.SHORT_WAIT)
         except:
             pass
 
-        self.fill_input_by_label("申报编号", order_id)
+        self.fill_input_by_label("用户编号", user_number)
         self.page.click("button:has-text('搜索')")
         time.sleep(Config.MEDIUM_WAIT)
 
         try:
             row = self.page.locator("table.el-table__body tr").first
-            if order_id in row.inner_text():
-                log("查询", f"✅ 台账中成功找到记录: {order_id}", "OK")
+            if user_number in row.inner_text():
+                log("查询", f"✅ 台账中成功找到记录: {user_number}", "OK")
                 return True
         except:
             pass
 
-        log("查询", f"❌ 台账中未找到记录: {order_id}", "ERROR")
+        log("查询", f"❌ 台账中未找到记录: {user_number}", "ERROR")
         return False
 
-    def get_applicant_id_card(self, order_id):
+    def get_applicant_id_card(self, user_number):
         """从台账详情弹窗中获取申报人身份证号"""
-        log("业务步骤", f"执行 [获取申报人身份证号] 编号: {order_id}", "STEP")
-        if not self.search_by_order_id(order_id):
+        log("业务步骤", f"执行 [获取申报人身份证号] 用户编号: {user_number}", "STEP")
+        if not self.search_by_user_number(user_number):
             return None
 
         try:
@@ -134,23 +134,23 @@ class LedgerPage(BasePage):
             return None
 
     # ==================== 补贴申报入口 ====================
-    def start_subsidy_declaration(self, order_id):
+    def start_subsidy_declaration(self, user_number):
         """点击台账表格中申报状态列的"补贴申报"蓝色链接文字"""
-        log("业务步骤", f"执行 [发起补贴申报] 流程，编号: {order_id}", "STEP")
-        if self.search_by_order_id(order_id):
+        log("业务步骤", f"执行 [发起补贴申报] 流程，用户编号: {user_number}", "STEP")
+        if self.search_by_user_number(user_number):
             try:
                 row = self.page.locator("table.el-table__body tr").first
                 link = row.locator("text=补贴申报").first
                 if link.is_visible(timeout=3000):
                     link.click()
                     time.sleep(Config.MEDIUM_WAIT)
-                    log("补贴申报", f"✅ 已点击 [{order_id}] 的'补贴申报'链接", "OK")
+                    log("补贴申报", f"✅ 已点击 [{user_number}] 的'补贴申报'链接", "OK")
                     return True
                 btn = row.locator("button:has-text('补贴申报')")
                 if btn.count() > 0:
                     btn.first.click()
                     time.sleep(Config.MEDIUM_WAIT)
-                    log("补贴申报", f"✅ 已点击 [{order_id}] 的补贴申报按钮", "OK")
+                    log("补贴申报", f"✅ 已点击 [{user_number}] 的补贴申报按钮", "OK")
                     return True
                 log("补贴申报", "❌ 未找到【补贴申报】链接或按钮", "ERROR")
             except Exception as e:
@@ -180,10 +180,10 @@ class LedgerPage(BasePage):
 
             # 2. 级联下拉：设备厂家 → 设备类型 → 设备型号
             self._select_dropdown("设备厂家")
-            time.sleep(2)
+            time.sleep(1)
 
             self._select_dropdown("设备类型")
-            time.sleep(2)
+            time.sleep(1)
 
             self._select_dropdown("设备型号")
             time.sleep(1)
@@ -381,9 +381,11 @@ class LedgerPage(BasePage):
 
     # ==================== 弹窗内操作工具方法 ====================
     def _select_dropdown(self, label_text):
-        """通过键盘 ArrowDown+Enter 选择下拉第一项（确保触发 Vue 级联）"""
+        """通过键盘 ArrowDown+Enter 选择下拉第一项（限定弹窗内）"""
         try:
-            form_item = self.page.locator(".el-form-item").filter(
+            # 限定在可见弹窗内搜索
+            dialog = self.page.locator(".el-dialog__wrapper:not([style*='display: none']) .el-dialog__body").first
+            form_item = dialog.locator(".el-form-item").filter(
                 has=self.page.locator(".el-form-item__label", has_text=label_text)
             )
             select_input = form_item.locator(".el-input__inner").first
@@ -393,9 +395,20 @@ class LedgerPage(BasePage):
                 log("表单填写", f"⚠️ {label_text}: 输入框被禁用（可能上级未选）", "WARN")
                 return
 
+            # 点击打开下拉框
             select_input.click(force=True)
-            time.sleep(1)
+            time.sleep(1.5)
 
+            # 等待下拉面板出现
+            dropdown_panel = self.page.locator(".el-select-dropdown__item >> visible=true")
+            try:
+                dropdown_panel.first.wait_for(state="visible", timeout=3000)
+            except:
+                # 面板没出来，再点一次
+                select_input.click(force=True)
+                time.sleep(1.5)
+
+            # 优先用键盘选择
             self.page.keyboard.press("ArrowDown")
             time.sleep(0.3)
             self.page.keyboard.press("Enter")
@@ -405,17 +418,24 @@ class LedgerPage(BasePage):
             if val and val.strip():
                 log("表单填写", f"✅ {label_text}: 已选 [{val}]")
             else:
-                log("表单填写", f"⚠️ {label_text}: 键盘选择后值仍为空", "WARN")
+                # 键盘失败，尝试直接点击第一个可见选项
+                visible_items = self.page.locator(".el-select-dropdown__item >> visible=true")
+                if visible_items.count() > 0:
+                    visible_items.first.click()
+                    time.sleep(0.5)
+                    val = select_input.input_value()
+                    log("表单填写", f"✅ {label_text}: 点击选中 [{val}]")
+                else:
+                    log("表单填写", f"⚠️ {label_text}: 下拉面板无选项", "WARN")
         except Exception as e:
             log_err("表单填写", f"{label_text} 下拉选择失败", e)
 
     def _pick_date(self, label_text):
-        """打开日期面板并选择今天"""
+        """打开日期面板并选择今天（含兜底方案）"""
         try:
-            form_item = self.page.locator(
-                f".el-form-item"
-            ).filter(has_text=label_text)
-
+            # 限定弹窗内搜索
+            dialog = self.page.locator(".el-dialog__wrapper:not([style*='display: none']) .el-dialog__body").first
+            form_item = dialog.locator(".el-form-item").filter(has_text=label_text)
             date_input = form_item.locator(".el-input__inner").first
 
             is_disabled = date_input.evaluate("el => el.disabled")
@@ -424,23 +444,42 @@ class LedgerPage(BasePage):
                 return
 
             date_input.click(force=True)
-            time.sleep(0.5)
+            time.sleep(1)
 
+            # 策略1: 点击今天
             today = self.page.locator("td.available.today >> visible=true")
             if today.count() > 0:
                 today.first.click()
                 time.sleep(0.5)
                 log("表单填写", f"✅ {label_text}: 已选今天")
-            else:
-                log("表单填写", f"⚠️ {label_text}: 未找到今天日期", "WARN")
+                return
+
+            # 策略2: 点击任意可用日期
+            available = self.page.locator("td.available:not(.disabled) >> visible=true")
+            if available.count() > 0:
+                available.first.click()
+                time.sleep(0.5)
+                log("表单填写", f"✅ {label_text}: 已选可用日期")
+                return
+
+            # 策略3: JS直接写入今天日期
+            from datetime import datetime
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            date_input.fill(today_str)
+            date_input.dispatch_event("change")
+            time.sleep(0.5)
+            # 关闭面板
+            self.page.keyboard.press("Escape")
+            time.sleep(0.3)
+            log("表单填写", f"✅ {label_text}: JS写入 {today_str}")
         except Exception as e:
             log_err("表单填写", f"{label_text} 日期选择失败", e)
 
     # ==================== 查看详情 ====================
-    def view_record_detail(self, order_id):
+    def view_record_detail(self, user_number):
         """查看台账记录详情"""
-        log("业务步骤", f"执行 [查看详情] 申报编号: {order_id}", "STEP")
-        if self.search_by_order_id(order_id):
+        log("业务步骤", f"执行 [查看详情] 用户编号: {user_number}", "STEP")
+        if self.search_by_user_number(user_number):
             try:
                 self.page.locator("table.el-table__body tr").first.locator(
                     "button:has-text('查看')"
@@ -450,7 +489,7 @@ class LedgerPage(BasePage):
                     ".el-dialog__title:has-text('详情'), .el-dialog__title:has-text('查看')",
                     timeout=5000
                 )
-                log("查看", f"✅ 已打开 [{order_id}] 的详情页面", "OK")
+                log("查看", f"✅ 已打开 [{user_number}] 的详情页面", "OK")
                 self.page.click("button:has-text('关 闭'), .el-dialog__headerbtn")
                 time.sleep(Config.SHORT_WAIT)
                 return True
