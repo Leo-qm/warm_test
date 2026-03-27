@@ -27,3 +27,6 @@ ENV/
 # Reports
 reports/
 *.html
+
+# Agent rules (local only)
+.agents/rules/
