@@ -16,18 +16,10 @@ class AuditPage(BasePage):
     def navigate_to_audit(self):
         """导航至申报审核管理页面，确保数据加载完成（含刷新重试）"""
         log("业务步骤", "========== 导航至申报审核页面 ==========", "STEP")
-        try:
-            top = self.page.locator(".cls-header-menu a:has-text('清洁能源')")
-            if top.count() > 0:
-                top.first.click(force=True)
-                time.sleep(Config.LONG_WAIT)
-        except:
-            pass
-
-        self.page.click("li.el-submenu:has-text('清洁取暖设备申报管理')")
-        time.sleep(Config.MEDIUM_WAIT)
-        self.page.click("li.el-menu-item:has-text('申报审核管理')")
-        self.page.wait_for_selector("button:has-text('搜索')", timeout=Config.PAGE_LOAD_TIMEOUT)
+        self.navigate_to_menu(
+            "清洁取暖设备申报管理", "申报审核管理",
+            "button:has-text('搜索')"
+        )
 
         # 点击重置按钮清除可能残留的筛选条件
         try:

@@ -18,32 +18,6 @@ from utils.config import Config
 from utils.logger import log
 
 
-class RoleManager:
-    """角色切换管理器"""
-
-    def __init__(self, page, ocr):
-        self.page = page
-        self.ocr = ocr
-        self.login_page = LoginPage(page, ocr)
-        self.current_role = None
-
-    def switch_to(self, role):
-        if self.current_role == role:
-            log("角色切换", f"当前已是 [{role}] 角色，跳过切换", "OK")
-            return
-
-        log("角色切换", f"========== 切换到 [{role}] 角色 ==========", "STEP")
-        self.login_page.logout()
-        self.login_page.login(role)
-
-        if Config.needs_portal_navigation():
-            home_page = HomePage(self.page)
-            home_page.enter_equipment_update_module()
-
-        self.current_role = role
-        log("角色切换", f"✅ 已切换到 [{role}] 角色", "OK")
-
-
 @allure.feature("E2E 设备更新全链路")
 @allure.story("设备新增→审核→设备更新→审核→补贴申报→审核 完整闭环")
 class TestDeviceUpdateFlow:
@@ -54,7 +28,7 @@ class TestDeviceUpdateFlow:
     @allure.title("设备更新全链路测试 (是否户主: {is_household}, 特殊补贴={special_subsidy})")
     @pytest.mark.parametrize("is_household", ["是", "否"])
     @pytest.mark.parametrize("special_subsidy", ["否", "是"])
-    def test_device_update_full_flow(self, page, ocr_engine, is_household, special_subsidy):
+    def test_device_update_full_flow(self, page, role_manager, is_household, special_subsidy):
         """
         完整流程:
         前置: 设备新增全流程 → 获取 order_id
@@ -63,7 +37,7 @@ class TestDeviceUpdateFlow:
         步骤3: 村级用户补贴申报
         步骤4: 镇级用户审核补贴
         """
-        role_mgr = RoleManager(page, ocr_engine)
+        role_mgr = role_manager
         test_data = DataFactory.build_test_data(is_household)
         original_order_id = None    # 设备新增的原始申报编号
         update_order_id = None      # 设备更新生成的新申报编号

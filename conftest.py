@@ -29,6 +29,34 @@ def ledger_p(page):
     return LedgerPage(page)
 
 
+@pytest.fixture(scope="session")
+def declaration_p(page):
+    """新增申报信息管理页对象"""
+    from pages.declaration_page import DeclarationPage
+    return DeclarationPage(page)
+
+
+@pytest.fixture(scope="session")
+def role_manager(page, ocr_engine):
+    """角色切换管理器"""
+    from utils.role_manager import RoleManager
+    return RoleManager(page, ocr_engine)
+
+
+@pytest.fixture(scope="session")
+def subsidy_config_p(page):
+    """补贴配置管理页对象"""
+    from pages.subsidy_config_page import SubsidyConfigPage
+    return SubsidyConfigPage(page)
+
+
+@pytest.fixture(scope="session")
+def history_ledger_p(page):
+    """历史台账查询页对象"""
+    from pages.history_ledger_page import HistoryLedgerPage
+    return HistoryLedgerPage(page)
+
+
 # ==================== 测试报告定制 ====================
 
 def pytest_configure(config):

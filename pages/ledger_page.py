@@ -14,47 +14,17 @@ class LedgerPage(BasePage):
     def navigate_to_ledger(self):
         """导航至设备申报台账管理页面"""
         log("业务步骤", "========== 导航至台账管理页面 ==========", "STEP")
-        try:
-            top = self.page.locator(".cls-header-menu a:has-text('清洁能源')")
-            if top.count() > 0:
-                top.first.click(force=True)
-                time.sleep(Config.LONG_WAIT)
-        except:
-            pass
-
-        self.page.click("li.el-submenu:has-text('清洁取暖设备申报管理')")
-        time.sleep(Config.MEDIUM_WAIT)
-        self.page.click("li.el-menu-item:has-text('设备申报台账管理')")
-        self.page.wait_for_selector("table.el-table__body tr", timeout=Config.PAGE_LOAD_TIMEOUT)
+        self.navigate_to_menu(
+            "清洁取暖设备申报管理", "设备申报台账管理",
+            "table.el-table__body tr"
+        )
         log("导航", "✅ 已进入设备申报台账管理页面", "OK")
 
     # ==================== 台账查询 ====================
     def search_by_user_number(self, user_number):
         """通过用户编号搜索台账记录（用户编号在整个业务周期中唯一不变）"""
-        if not user_number:
-            return False
-
         log("业务步骤", f"执行 [台账查询] 用户编号: {user_number}", "STEP")
-        try:
-            self.page.click("button:has-text('重置')", timeout=2000)
-            time.sleep(Config.SHORT_WAIT)
-        except:
-            pass
-
-        self.fill_input_by_label("用户编号", user_number)
-        self.page.click("button:has-text('搜索')")
-        time.sleep(Config.MEDIUM_WAIT)
-
-        try:
-            row = self.page.locator("table.el-table__body tr").first
-            if user_number in row.inner_text():
-                log("查询", f"✅ 台账中成功找到记录: {user_number}", "OK")
-                return True
-        except:
-            pass
-
-        log("查询", f"❌ 台账中未找到记录: {user_number}", "ERROR")
-        return False
+        return self.search_in_table("用户编号", user_number)
 
     def get_applicant_id_card(self, user_number):
         """从台账详情弹窗中获取申报人身份证号"""
@@ -178,28 +148,31 @@ class LedgerPage(BasePage):
             # 1. 购置金额
             self.fill_input_by_label("购置金额", d.get("purchase_amount", "3000"))
 
-            # 2. 级联下拉：设备厂家 → 设备类型 → 设备型号
-            self._select_dropdown("设备厂家")
-            time.sleep(1)
+            # 2. 级联下拉：设备厂家（el-select）→ 设备类型（el-cascader）→ 设备型号（el-cascader）
+            # 设备厂家是普通下拉，选择后触发前端级联加载设备类型选项
+            self.select_dropdown("设备厂家")
+            time.sleep(2)  # 等待前端根据厂家加载设备类型选项
 
-            self._select_dropdown("设备类型")
-            time.sleep(1)
+            # 设备类型是级联选择器，选择后触发前端级联加载设备型号选项
+            self.select_cascader("设备类型")
+            time.sleep(2)  # 等待前端根据类型加载设备型号选项
 
-            self._select_dropdown("设备型号")
+            # 设备型号是级联选择器
+            self.select_cascader("设备型号")
             time.sleep(1)
 
             # 3. 能耗级别
-            self._select_dropdown("能耗级别")
+            self.select_dropdown("能耗级别")
 
             # 4. 质保日期
-            self._pick_date("质保日期")
+            self.pick_date("质保日期")
 
             # 5. 发票号码
             self.fill_input_by_label("发票号码", d.get("invoice_number", "INV20260324001"))
 
             # === 安装信息 ===
             # 6. 安装日期
-            self._pick_date("安装日期")
+            self.pick_date("安装日期")
 
             # 7. 安装人员
             self.fill_input_by_label("安装人员", d.get("installer_name", "张师傅"), exact=True)
@@ -223,7 +196,7 @@ class LedgerPage(BasePage):
                         time.sleep(1)
 
                         # 1. 特殊补贴申报类型（下拉单选）
-                        self._select_dropdown("特殊补贴申报类型")
+                        self.select_dropdown("特殊补贴申报类型")
 
                         # 2. 特殊补贴证明材料（上传附件）
                         try:
@@ -242,37 +215,8 @@ class LedgerPage(BasePage):
             except Exception as e:
                 log("表单填写", f"⚠️ 特殊补贴信息处理异常: {e}", "WARN")
 
-            # === 附件上传（打标法） ===
-            try:
-                test_img = os.path.join(os.getcwd(), "test_upload.png")
-                if not os.path.exists(test_img):
-                    self.page.screenshot(path=test_img)
-                
-                uploaded_count = 0
-                for attempt in range(25):
-                    btn_locator = self.page.locator(".el-dialog__wrapper:not([style*='display: none']) .el-dialog__body button:has-text('点击上传'):not(.uploaded-done)")
-                    if btn_locator.count() == 0:
-                        break
-                    btn = btn_locator.first
-                    btn.scroll_into_view_if_needed()
-                    time.sleep(0.5)
-                    try:
-                        with self.page.expect_file_chooser(timeout=3000) as fc_info:
-                            btn.click()
-                        fc_info.value.set_files(test_img)
-                        uploaded_count += 1
-                        log("补贴申报", f"✅ 成功填入第 {uploaded_count} 个附件")
-                        time.sleep(1.5)
-                    except Exception as e:
-                        log("补贴申报", f"⚠️ 附件交互异常: {e}", "WARN")
-                    finally:
-                        try:
-                            btn.evaluate("node => node.classList.add('uploaded-done')")
-                        except:
-                            pass
-                log("补贴申报", f"✅ 共成功处理了 {uploaded_count} 个附件上传入口", "OK")
-            except Exception as e:
-                log("补贴申报", f"⚠️ 附件上传异常: {e}", "WARN")
+            # === 附件上传 ===
+            self.upload_files()
 
 
             # === 提交前校验 ===
@@ -380,100 +324,6 @@ class LedgerPage(BasePage):
             return None
 
     # ==================== 弹窗内操作工具方法 ====================
-    def _select_dropdown(self, label_text):
-        """通过键盘 ArrowDown+Enter 选择下拉第一项（限定弹窗内）"""
-        try:
-            # 限定在可见弹窗内搜索
-            dialog = self.page.locator(".el-dialog__wrapper:not([style*='display: none']) .el-dialog__body").first
-            form_item = dialog.locator(".el-form-item").filter(
-                has=self.page.locator(".el-form-item__label", has_text=label_text)
-            )
-            select_input = form_item.locator(".el-input__inner").first
-
-            is_disabled = select_input.evaluate("el => el.disabled")
-            if is_disabled:
-                log("表单填写", f"⚠️ {label_text}: 输入框被禁用（可能上级未选）", "WARN")
-                return
-
-            # 点击打开下拉框
-            select_input.click(force=True)
-            time.sleep(1.5)
-
-            # 等待下拉面板出现
-            dropdown_panel = self.page.locator(".el-select-dropdown__item >> visible=true")
-            try:
-                dropdown_panel.first.wait_for(state="visible", timeout=3000)
-            except:
-                # 面板没出来，再点一次
-                select_input.click(force=True)
-                time.sleep(1.5)
-
-            # 优先用键盘选择
-            self.page.keyboard.press("ArrowDown")
-            time.sleep(0.3)
-            self.page.keyboard.press("Enter")
-            time.sleep(0.5)
-
-            val = select_input.input_value()
-            if val and val.strip():
-                log("表单填写", f"✅ {label_text}: 已选 [{val}]")
-            else:
-                # 键盘失败，尝试直接点击第一个可见选项
-                visible_items = self.page.locator(".el-select-dropdown__item >> visible=true")
-                if visible_items.count() > 0:
-                    visible_items.first.click()
-                    time.sleep(0.5)
-                    val = select_input.input_value()
-                    log("表单填写", f"✅ {label_text}: 点击选中 [{val}]")
-                else:
-                    log("表单填写", f"⚠️ {label_text}: 下拉面板无选项", "WARN")
-        except Exception as e:
-            log_err("表单填写", f"{label_text} 下拉选择失败", e)
-
-    def _pick_date(self, label_text):
-        """打开日期面板并选择今天（含兜底方案）"""
-        try:
-            # 限定弹窗内搜索
-            dialog = self.page.locator(".el-dialog__wrapper:not([style*='display: none']) .el-dialog__body").first
-            form_item = dialog.locator(".el-form-item").filter(has_text=label_text)
-            date_input = form_item.locator(".el-input__inner").first
-
-            is_disabled = date_input.evaluate("el => el.disabled")
-            if is_disabled:
-                log("表单填写", f"⚠️ {label_text}: 日期选择器被禁用", "WARN")
-                return
-
-            date_input.click(force=True)
-            time.sleep(1)
-
-            # 策略1: 点击今天
-            today = self.page.locator("td.available.today >> visible=true")
-            if today.count() > 0:
-                today.first.click()
-                time.sleep(0.5)
-                log("表单填写", f"✅ {label_text}: 已选今天")
-                return
-
-            # 策略2: 点击任意可用日期
-            available = self.page.locator("td.available:not(.disabled) >> visible=true")
-            if available.count() > 0:
-                available.first.click()
-                time.sleep(0.5)
-                log("表单填写", f"✅ {label_text}: 已选可用日期")
-                return
-
-            # 策略3: JS直接写入今天日期
-            from datetime import datetime
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            date_input.fill(today_str)
-            date_input.dispatch_event("change")
-            time.sleep(0.5)
-            # 关闭面板
-            self.page.keyboard.press("Escape")
-            time.sleep(0.3)
-            log("表单填写", f"✅ {label_text}: JS写入 {today_str}")
-        except Exception as e:
-            log_err("表单填写", f"{label_text} 日期选择失败", e)
 
     # ==================== 查看详情 ====================
     def view_record_detail(self, user_number):

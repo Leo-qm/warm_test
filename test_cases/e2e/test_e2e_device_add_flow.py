@@ -17,44 +17,6 @@ from utils.config import Config
 from utils.logger import log
 
 
-class RoleManager:
-    """
-    角色切换管理器
-    在同一浏览器会话中实现村级/镇级账号之间的无缝切换，
-    每次切换会清理登录态并重新走登录+门户流程。
-    """
-
-    def __init__(self, page, ocr):
-        self.page = page
-        self.ocr = ocr
-        self.login_page = LoginPage(page, ocr)
-        self.current_role = None
-
-    def switch_to(self, role):
-        """
-        切换到指定角色 (如 'village', 'town')
-        如果当前已是该角色则跳过
-        """
-        if self.current_role == role:
-            log("角色切换", f"当前已是 [{role}] 角色，跳过切换", "OK")
-            return
-
-        log("角色切换", f"========== 切换到 [{role}] 角色 ==========", "STEP")
-
-        # 1. 登出当前账号
-        self.login_page.logout()
-
-        # 2. 以新角色登录
-        self.login_page.login(role)
-
-        # 3. 进入门户
-        home_page = HomePage(self.page)
-        home_page.enter_equipment_update_module()
-
-        self.current_role = role
-        log("角色切换", f"✅ 已成功切换到 [{role}] 角色并进入业务系统", "OK")
-
-
 @pytest.mark.e2e
 @allure.feature("设备新增流程")
 @allure.story("设备新增资格申报→审核→补贴申报→审核 完整闭环")
@@ -68,7 +30,7 @@ class TestDeviceAddFlow:
     @allure.title("设备新增全链路测试 (是否户主: {is_household}, 特殊补贴={special_subsidy})")
     @pytest.mark.parametrize("is_household", ["是", "否"])
     @pytest.mark.parametrize("special_subsidy", ["否", "是"])
-    def test_device_add_flow(self, page, ocr_engine, special_subsidy, is_household):
+    def test_device_add_flow(self, page, role_manager, special_subsidy, is_household):
         """
         设备新增完整业务闭环:
         第一阶段: 村级设备新增申报 → 镇级审核
@@ -76,7 +38,7 @@ class TestDeviceAddFlow:
         参数化: special_subsidy 控制特殊补贴选择（是=填额外字段，否=跳过）
         """
         # ==================== 初始化 ====================
-        role_mgr = RoleManager(page, ocr_engine)
+        role_mgr = role_manager
         test_data = DataFactory.build_test_data()
         order_id = None  # 全流程共享的申报编号
         # 用户编号在整个业务周期中唯一不变，用于台账/审核搜索

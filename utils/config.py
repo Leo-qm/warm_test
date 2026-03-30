@@ -132,3 +132,16 @@ class Config:
         目前 local 和 test 环境均需要经过门户首页
         """
         return True
+
+    @classmethod
+    def get_report_path(cls, filename):
+        """
+        获取报告/导出文件的完整路径
+        自动创建 reports 目录（如果不存在）
+        :param filename: 文件名（如 'ledger_export_xxx.xlsx'）
+        :return: 完整的文件路径
+        """
+        report_dir = os.path.join(cls._ROOT_DIR, "reports")
+        os.makedirs(report_dir, exist_ok=True)
+        return os.path.join(report_dir, filename)
+
