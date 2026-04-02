@@ -120,17 +120,34 @@ class TestDeviceUpdateFlow:
 
         # ==================== 步骤1：村级用户设备更新申报 ====================
 
-        with allure.step("步骤1: 村级用户创建设备更新申报"):
-            log("E2E", f">>> [步骤1] 村级用户：创建设备更新申报 (户主身份证: {household_id_card}) <<<", "STEP")
+        with allure.step("步骤1: 村级用户创建、修改并上报设备更新申报"):
+            log("E2E", f">>> [步骤1] 村级用户：创建草稿、修改并上报设备更新 (户主身份证: {household_id_card}) <<<", "STEP")
             role_mgr.switch_to("village")
 
             declaration_page = DeclarationPage(page)
             declaration_page.navigate_to_declaration()
 
-            update_data = DataFactory.build_device_update_data()
-            update_order_id = declaration_page.create_device_update_record(household_id_card, update_data)
-            assert update_order_id, "❌ 设备更新申报创建失败"
-            log("E2E", f"✅ 设备更新申报创建成功: {update_order_id}", "OK")
+            update_data = DataFactory.build_device_update_data(is_household)
+            
+            # a. 填报后，点击保存按钮即可（仅保存不提交）
+            log("E2E", f">>> 正在创建设备更新草稿 <<<", "STEP")
+            update_order_id = declaration_page.create_device_update_record(household_id_card, update_data, submit_action="save")
+            
+            # 确保在列表页刷新状态
+            declaration_page.navigate_to_declaration()
+            
+            # b. 到新增申报信息管理页用用户编号去查询设备更新保存的草稿，查到后，点击修改按钮修改重新保存
+            log("E2E", f">>> 正在查询并修改设备更新草稿 <<<", "STEP")
+            new_area = update_data.get("heating_area", 100) + 12
+            modify_success = declaration_page.update_record(user_number, new_area)
+            assert modify_success, "❌ 修改设备更新申报草稿失败"
+            
+            # c. 再次用用户编号查询该条记录，查到后，点击上报
+            log("E2E", f">>> 正在查询并上报设备更新草稿 <<<", "STEP")
+            report_success = declaration_page.report_record(user_number)
+            assert report_success, "❌ 上报设备更新申报草稿失败"
+            
+            log("E2E", f"✅ 设备更新申报保存-修改-上报流程执行成功: {update_order_id or '通过用户编号执行'}", "OK")
 
         # ==================== 步骤2：镇级用户审核设备更新 ====================
 

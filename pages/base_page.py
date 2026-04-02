@@ -566,8 +566,8 @@ class BasePage:
             return False
 
     # ==================== 通用下拉选择 ====================
-    def select_dropdown(self, label_text):
-        """通用下拉选择器 — 根据标签文本定位 el-select 并选择第一个可用选项。
+    def select_dropdown(self, label_text, option_text=None):
+        """通用下拉选择器 — 根据标签文本定位 el-select 并选择指定文本或第一个可用选项。
 
         兼容两种 DOM 结构：
         1. 标准 .el-form-item 内嵌 .el-select
@@ -575,6 +575,7 @@ class BasePage:
 
         Args:
             label_text: 表单标签文本，如 "能源类型"、"设备厂家"
+            option_text: 可选，指定要选择的选项内容（支持包含匹配）。若为空则选第一个。
         """
         log("下拉选择", f">> 选择 [{label_text}]", "STEP")
 
@@ -605,10 +606,8 @@ class BasePage:
                     select_input.click(force=True)
                     time.sleep(Config.SHORT_WAIT)
 
-                # 选择第一个可见且非禁用的选项
-                items = self.page.locator(
-                    ".el-select-dropdown__item >> visible=true"
-                )
+                # 选择匹配要求可见且非禁用的选项
+                items = self.page.locator(".el-select-dropdown__item >> visible=true")
                 for i in range(items.count()):
                     item = items.nth(i)
                     # 跳过禁用项和「请选择」占位项
@@ -616,12 +615,14 @@ class BasePage:
                     text = item.inner_text().strip()
                     if "is-disabled" in classes or text in ("", "请选择"):
                         continue
+                    if option_text and option_text not in text:
+                        continue
                     item.click()
                     time.sleep(Config.SHORT_WAIT)
                     log("下拉选择", f"✅ [{label_text}]: 已选 [{text}]")
                     return True
 
-                log("下拉选择", f"⚠️ [{label_text}]: 下拉面板无可选项", "WARN")
+                log("下拉选择", f"⚠️ [{label_text}]: 下拉面板无满足条件的选项", "WARN")
                 # 点击空白处关闭面板
                 self.page.keyboard.press("Escape")
                 return False
@@ -647,15 +648,21 @@ class BasePage:
 
             if clicked:
                 time.sleep(Config.SHORT_WAIT)
-                item = self.page.locator(
-                    ".el-select-dropdown__item >> visible=true"
-                ).first
-                if item.is_visible(timeout=3000):
-                    text = item.inner_text().strip()
-                    item.click()
-                    time.sleep(Config.SHORT_WAIT)
-                    log("下拉选择", f"✅ [{label_text}]: JS兜底已选 [{text}]")
-                    return True
+                self.page.wait_for_selector(".el-select-dropdown__item >> visible=true", timeout=3000)
+                items = self.page.locator(".el-select-dropdown__item >> visible=true")
+                for i in range(items.count()):
+                    item = items.nth(i)
+                    if item.is_visible(timeout=3000):
+                        classes = item.get_attribute("class") or ""
+                        text = item.inner_text().strip()
+                        if "is-disabled" in classes or text in ("", "请选择"):
+                            continue
+                        if option_text and option_text not in text:
+                            continue
+                        item.click()
+                        time.sleep(Config.SHORT_WAIT)
+                        log("下拉选择", f"✅ [{label_text}]: JS兜底已选 [{text}]")
+                        return True
 
             log("下拉选择", f"❌ [{label_text}]: 未能完成下拉选择", "ERROR")
         except Exception as e:

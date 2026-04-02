@@ -27,12 +27,13 @@ class DeclarationPage(BasePage):
         self._fill_form_content(data)
         return self._save_form()
 
-    def create_device_update_record(self, id_card, data=None):
+    def create_device_update_record(self, id_card, data=None, submit_action="submit"):
         """
-        [Create] 设备更新：输入身份证号查询已有设备 → 填写更新表单 → 保存并上报
+        [Create] 设备更新：输入身份证号查询已有设备 → 填写更新表单
         
         :param id_card: 已审核通过的设备新增记录的申报人身份证号
         :param data: 可选的额外表单数据（如需覆盖预填值）
+        :param submit_action: "save" (仅保存为草稿) 或 "submit" (保存并提交)
         :return: 系统生成的申报编号，失败返回 None
         """
         log("业务步骤", f"执行 [设备更新] 记录流程 (身份证: {id_card})", "STEP")
@@ -182,8 +183,26 @@ class DeclarationPage(BasePage):
             }""")
             time.sleep(Config.LONG_WAIT)
             log("设备更新", "✅ 已点击查询按钮")
+
+            # 抓取自动带出的用户编号，存入对象以便后续查询验证
+            self.last_user_number = self.page.evaluate("""() => {
+                const wrappers = document.querySelectorAll('.el-dialog__wrapper');
+                for (const wrapper of wrappers) {
+                    if (wrapper.style.display === 'none') continue;
+                    const labels = wrapper.querySelectorAll('.el-form-item__label');
+                    for (const label of labels) {
+                        if (label.textContent.includes('用户编号')) {
+                            const input = label.parentElement.querySelector('input');
+                            if (input && input.value) return input.value;
+                        }
+                    }
+                }
+                return null;
+            }""")
+            if self.last_user_number:
+                log("设备更新", f"✅ 成功抓取回显用户编号: {self.last_user_number}")
         except Exception as e:
-            log_err("设备更新", "点击查询按钮失败", e)
+            log_err("设备更新", "点击查询按钮或抓取异常", e)
             return None
         
         # 6. 填写必填字段（data 由 DataFactory.build_device_update_data() 提供）
@@ -238,27 +257,39 @@ class DeclarationPage(BasePage):
         
         # 6.1 申请人信息区块
         log("设备更新", ">> [申请人信息] 填写空字段", "STEP")
-        if data.get("applicant_phone"):
-            fill_in_dialog("申报人联系电话", data["applicant_phone"], "申报人联系电话")
+        
+        is_household = data.get("is_household", "是")
+        self.select_dropdown("是否户主", is_household)
+        self.wait_for_vue_update()
+        
+        if is_household != "是":
+            if data.get("applicant_name"):
+                fill_in_dialog("申报人姓名", data["applicant_name"], "申报人姓名")
+            if data.get("applicant_id_card"):
+                fill_in_dialog("申报人身份证号", data["applicant_id_card"], "申报人身份证号")
+            if data.get("applicant_phone"):
+                fill_in_dialog("申报人联系电话", data["applicant_phone"], "申报人联系电话")
+            
+            # 户籍信息（树形下拉，需逐级展开到村级）
+            self._select_huji_to_village()
+        else:
+            log("设备更新", "  当前选择[是否户主]为“是”，跳过申报人名称/电话/户籍信息的填写 (原台账已带入)", "OK")
+
         if data.get("heating_area"):
             fill_in_dialog("采暖面积", str(data["heating_area"]), "采暖面积")
-
-        # 户籍信息（树形下拉，需逐级展开到村级）
-        self._select_huji_to_village()
-        
         
         # 6.2 申报类型区块 — 能源类型
         log("设备更新", ">> [申报类型] 选择能源类型", "STEP")
         self.select_dropdown("能源类型")
 
-        # 6.3 基本信息区块（用户编号、门牌号、银行卡号、开户人姓名）
+        # 6.3 基本信息区块（门牌号、银行卡号、开户人姓名）
         log("设备更新", ">> [基本信息] 填写空字段", "STEP")
         if body:
             body.evaluate("el => el.scrollTop += 600")
             time.sleep(0.5)
         
-        if data.get("user_number"):
-            fill_in_dialog("用户编号", data["user_number"], "用户编号")
+        # 不要查填【用户编号】，在设备更新查询后其原台账会在头部信息展示且不可编辑。
+
 
         if data.get("bank_account"):
             fill_in_dialog("银行卡", data["bank_account"], "银行卡/折账号")
@@ -281,30 +312,35 @@ class DeclarationPage(BasePage):
             body.evaluate("el => el.scrollTop = el.scrollHeight")
             time.sleep(0.5)
         try:
-            clicked = self.page.evaluate("""() => {
+            clicked = self.page.evaluate(f"""(action) => {{
                 const wrappers = document.querySelectorAll('.el-dialog__wrapper');
-                for (const wrapper of wrappers) {
+                for (const wrapper of wrappers) {{
                     if (wrapper.style.display === 'none') continue;
                     const header = wrapper.querySelector('.el-dialog__header');
                     if (!header || !header.textContent.includes('设备更新')) continue;
                     const footer = wrapper.querySelector('.el-dialog__footer') || wrapper.querySelector('.dialog-footer') || wrapper;
                     const btns = footer.querySelectorAll('button');
-                    for (const btn of btns) {
-                        if (btn.textContent.trim().includes('保存并提交')) {
-                            btn.click();
-                            return 'submit';
-                        }
-                    }
-                    for (const btn of btns) {
+                    
+                    if (action === 'submit') {{
+                        for (const btn of btns) {{
+                            if (btn.textContent.trim().includes('保存并提交')) {{
+                                btn.click();
+                                return 'submit';
+                            }}
+                        }}
+                    }}
+                    
+                    // 退化到仅保存，或指定 action === 'save'
+                    for (const btn of btns) {{
                         const txt = btn.textContent.trim();
-                        if (txt.includes('保存') && !txt.includes('取消')) {
+                        if (txt.includes('保存') && !txt.includes('取消') && (!txt.includes('提交') || action === 'submit')) {{
                             btn.click();
                             return 'save';
-                        }
-                    }
-                }
+                        }}
+                    }}
+                }}
                 return null;
-            }""")
+            }}""", submit_action)
             if clicked:
                 log("设备更新", f"✅ 已点击按钮: {clicked}")
             else:
@@ -397,17 +433,99 @@ class DeclarationPage(BasePage):
         except Exception as e:
             log_err("查看", "查看操作异常", e)
 
-    def update_record(self, order_id, new_area):
-        """[Update] 编辑现有记录"""
-        log("业务步骤", f"执行 [更新] 申报编号: {order_id} -> 新面积: {new_area}", "STEP")
-        if not self.search_record(order_id):
-            return
+    def search_record_by_user_number(self, user_number):
+        """[Read] 在列表页通过"用户编号"精准搜索记录"""
+        if not user_number:
+            log("查询", "❌ 错误: 用户编号为空，无法查询", "ERROR")
+            return False
 
-        self.page.locator("table.el-table__body tr").first.locator("button:has-text('编辑')").click()
+        log("业务步骤", f"执行 [查询-用户编号] 用户编号: {user_number}", "STEP")
+        time.sleep(1.5)
+        # 1. 点击重置
+        try:
+            reset_btn = self.page.locator("button:has-text('重置')").first
+            if reset_btn.is_visible():
+                reset_btn.click()
+                time.sleep(Config.SHORT_WAIT)
+        except:
+            pass
+
+        # 2. 填充系统/用户编号（通常前端系统会自动匹配）
+        log("查询", f"填充用户编号: {user_number}")
+        # 这里尝试填入用户编号输入框，如果没有对应的精确label则用模糊匹配
+        try:
+            self.fill_input_by_label("用户编号", user_number)
+        except:
+            # 兼容如果前端叫“系统/用户编号”
+            self.fill_input_by_label("系统/用户编号", user_number)
+
+        # 3. 点击搜索
+        log("查询", "点击搜索按钮")
+        self.page.click("button:has-text('搜索')")
         time.sleep(Config.LONG_WAIT)
 
-        self.safe_fill("input[placeholder*='采暖面积']", str(new_area), "采暖面积")
-        self._save_form()
+        # 4. 验证结果
+        try:
+            row = self.page.locator("table.el-table__body tr").first
+            row.wait_for(state="visible", timeout=5000)
+            text = row.inner_text()
+            if user_number in text:
+                log("查询", f"✅ 成功找到记录: {user_number}", "OK")
+                return True
+        except:
+            pass
+
+        log("查询", f"❌ 未找到匹配记录: {user_number}", "ERROR")
+        return False
+
+    def update_record(self, user_number, new_area):
+        """[Update] 编辑现有记录(通过用户编号定位)"""
+        log("业务步骤", f"执行 [更新] 申报对应用户编号: {user_number} -> 新面积: {new_area}", "STEP")
+        if not self.search_record_by_user_number(user_number):
+            return False
+
+        try:
+            self.page.locator("table.el-table__body tr").first.locator("button:has-text('修改')").click()
+            time.sleep(Config.LONG_WAIT)
+            
+            # 定位对应的弹窗内部
+            self.safe_fill("input[placeholder*='采暖面积']", str(new_area), "采暖面积")
+            self._save_form()  # 里面会点击保存
+            self.wait_for_vue_update()
+            self.wait_for_network_idle()
+            return True
+        except Exception as e:
+            log("更新", f"❌ 编辑报错: {e}", "ERROR")
+            return False
+
+    def report_record(self, user_number):
+        """[Report] 上报状态为草稿的记录"""
+        log("业务步骤", f"执行 [上报] 用户编号: {user_number}", "STEP")
+        if not self.search_record_by_user_number(user_number):
+            return False
+            
+        try:
+            report_btn = self.page.locator("table.el-table__body tr").first.locator("button:has-text('上报')")
+            if report_btn.is_visible():
+                report_btn.click()
+                time.sleep(1.5)
+                # 确认上报
+                confirm_btn = self.page.locator(
+                    ".el-message-box__btns button:has-text('确定')"
+                ).last
+                if confirm_btn.is_visible():
+                    confirm_btn.click()
+                    time.sleep(Config.LONG_WAIT)
+                    log("上报", f"✅ 用户编号 [{user_number}] 上报成功", "OK")
+                    return True
+                else:
+                    log("上报", "❌ 未找到上报确认按钮", "ERROR")
+            else:
+                log("上报", "❌ 列表中未找到【上报】按钮", "ERROR")
+            return False
+        except Exception as e:
+            log("上报", f"❌ 上报异常: {e}", "ERROR")
+            return False
 
     def delete_record(self, order_id):
         """[Delete] 删除现有记录"""
