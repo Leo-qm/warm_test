@@ -110,7 +110,7 @@ class DataFactory:
         :param is_household: 是否为户主
         :return: 设备更新表单补充数据字典
         """
-        return {
+        data = {
             "is_household": is_household,
             "applicant_phone": DataFactory.random_phone(),
             "heating_area": str(random.randint(30, 300)),
@@ -119,3 +119,8 @@ class DataFactory:
             "bank_account": "622202" + "".join(random.choices(string.digits, k=13)),
             "account_holder_name": DataFactory.random_chinese_name(),
         }
+        # 非户主时，申报人信息不会从原台账自动带入，需要手动填写
+        if is_household == "否":
+            data["applicant_name"] = DataFactory.random_chinese_name()
+            data["applicant_id_card"] = DataFactory.random_id_card()
+        return data

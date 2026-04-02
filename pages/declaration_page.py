@@ -259,16 +259,18 @@ class DeclarationPage(BasePage):
         log("设备更新", ">> [申请人信息] 填写空字段", "STEP")
         
         is_household = data.get("is_household", "是")
-        self.select_dropdown("是否户主", is_household)
+        # 是否户主下拉在弹窗内，必须用弹窗内精准定位
+        self.select_dropdown_in_dialog("是否户主", is_household)
+        # 选择后等待 Vue 响应式更新（联动控制申报人字段的显示/可编辑状态）
+        time.sleep(1)
         self.wait_for_vue_update()
         
         if is_household != "是":
-            if data.get("applicant_name"):
-                fill_in_dialog("申报人姓名", data["applicant_name"], "申报人姓名")
-            if data.get("applicant_id_card"):
-                fill_in_dialog("申报人身份证号", data["applicant_id_card"], "申报人身份证号")
-            if data.get("applicant_phone"):
-                fill_in_dialog("申报人联系电话", data["applicant_phone"], "申报人联系电话")
+            # 非户主时，申报人信息不会从原台账自动带入，三个字段必须手动填写
+            log("设备更新", f"  当前[是否户主]为'{is_household}'，需手动填写申报人信息", "STEP")
+            fill_in_dialog("申报人姓名", data.get("applicant_name", ""), "申报人姓名")
+            fill_in_dialog("申报人身份证", data.get("applicant_id_card", ""), "申报人身份证号")
+            fill_in_dialog("申报人联系电话", data.get("applicant_phone", ""), "申报人联系电话")
             
             # 户籍信息（树形下拉，需逐级展开到村级）
             self._select_huji_to_village()
