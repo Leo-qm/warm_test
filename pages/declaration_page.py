@@ -445,7 +445,14 @@ class DeclarationPage(BasePage):
     # ==================== 内部方法 ====================
 
     def _fill_form_content(self, data):
-        """填写设备新增的4个区块表单字段"""
+        """填写设备新增的4个区块表单字段
+
+        基于前端组件分析：
+        - HouseholdInfo.vue: 户主姓名/身份证号/联系电话(el-input)，安装地址(Treeselect)，门牌号/客户编号(el-input)
+        - ApplicantInfo.vue: 是否户主(el-select)，申报人姓名/身份证号/联系电话(el-input)，户籍信息(Treeselect)，采暖面积(el-input)
+        - DeclarationType.vue: 能源类型(el-select)
+        - BasicInfoUpload.vue: 用户编号/银行卡号/开户人姓名(el-input)，附件上传(file-upload)
+        """
         d = data
 
         # 区块 1: 户主信息
@@ -453,32 +460,40 @@ class DeclarationPage(BasePage):
         self.safe_fill("input[placeholder='请输入户主姓名']", d["household_name"], "户主姓名")
         self.safe_fill("input[placeholder='请输入身份证号']", d["id_card"], "身份证号")
         self.safe_fill("input[placeholder='请输入联系电话']", d["phone"], "联系电话")
-        self.safe_fill("input[placeholder='请输入安装地址']", d["address"], "安装地址")
+
+        # 安装地址 — 前端使用 Treeselect 组件（不是普通 input），需通过 Vue 实例赋值
+        self._select_treeselect_first_leaf("安装地址")
+
         self.safe_fill("input[placeholder='请输入门牌号']", d["door_number"], "门牌号")
         self.safe_fill("input[placeholder='请输入客户编号']", d["customer_id"], "客户编号")
 
         # 区块 2: 申报人信息
         log("表单", ">>> [Section 2] 申报人信息 (处理禁用联动)", "STEP")
-        self.safe_select_by_text("input[placeholder='请选择是否户主']", d["is_household"], "是否户主")
+
+        # 是否户主 — 前端 ApplicantInfo.vue 使用 el-select（不是基于 placeholder 的 input）
+        self.select_dropdown("是否户主")
+        self.wait_for_vue_update()  # 选择后可能触发申报人字段的禁用/启用联动
+
         self.safe_fill("input[placeholder='请输入申报人姓名']", d["applicant_name"], "申报人姓名")
         self.safe_fill("input[placeholder='请输入申报人身份证号']", d["applicant_id_card"], "申报人身份证号")
         self.safe_fill("input[placeholder='请输入申报人联系电话']", d["applicant_phone"], "申报人联系电话")
-        # 户籍信息（树形下拉，需逐级展开到村级）
+
+        # 户籍信息（Treeselect 组件，通过 Vue 实例直接设值）
         self._select_huji_to_village()
 
         self.safe_fill("input[placeholder*='采暖面积']", d["heating_area"], "采暖面积")
 
-        # 区块 3: 能源类型
+        # 区块 3: 能源类型 — 前端 DeclarationType.vue 使用 el-select
         log("表单", ">>> [Section 3] 能源类型", "STEP")
         body = self.get_dialog_body()
         self.select_dropdown("能源类型")
-
 
         # 区块 4: 基础信息
         log("表单", ">>> [Section 4] 基础信息", "STEP")
 
         if body:
             body.evaluate("el => el.scrollTop += 600")
+            time.sleep(0.3)
         self.safe_fill("input[placeholder*='用户编号']", d["user_number"], "用户编号")
         self.safe_fill("input[placeholder*='银行卡号']", d["bank_account"], "银行卡号")
         self.safe_fill("input[placeholder*='开户人姓名']", d["account_holder_name"], "开户人姓名")
@@ -486,8 +501,19 @@ class DeclarationPage(BasePage):
         # 统一上传附件
         if body:
             body.evaluate("el => el.scrollTop = 0")
-            time.sleep(0.5)
+            time.sleep(0.3)
         self.upload_files()
+        # 等待所有附件上传完成
+        try:
+            self.page.wait_for_function(
+                """() => {
+                    const uploading = document.querySelectorAll('.el-upload-list__item.is-uploading');
+                    return uploading.length === 0;
+                }""",
+                timeout=10000
+            )
+        except:
+            time.sleep(Config.UPLOAD_WAIT)
 
 
     def _save_form(self):
@@ -550,61 +576,182 @@ class DeclarationPage(BasePage):
 
 
 
-    def _select_huji_to_village(self):
-        """选择户籍信息 — 通过 Vue 组件实例直接设值（最可靠）。
+    def _select_treeselect_first_leaf(self, label_text):
+        """选择 Treeselect 组件的第一个叶子节点 — 通过 form-item label 精确定位 + 计算属性 setter 赋值。
 
-        前端源码(ApplicantInfo.vue):
-          <Treeselect v-model="householdInfoForTreeselect"
-                      :options="districtTreeOptions" :normalizer="treeNormalizer" />
-          treeNormalizer: {id: node.id, label: node.name, children: node.children}
-          set(val) → this.$set(this.saveFormData, fieldCodeHouseholdInfo, String(val))
+        前端 HouseholdInfo.vue 中安装地址使用 @riophae/vue-treeselect 组件：
+          <Treeselect v-model="installAddressForTreeselect"
+                      :options="filteredDistrictTreeOptions" />
+        计算属性 setter 会调用 $set(saveFormData, fieldCode, String(val))
 
-        策略：通过 __vue__ 访问 Treeselect 组件 → 回溯到父组件获取 districtTreeOptions
-             → 递归找第一个叶子节点 ID → 直接 $set 写入 saveFormData。
+        Args:
+            label_text: 表单标签文本，如 "安装地址"
         """
-        log("表单填写", ">> [户籍信息] 选择到村级", "STEP")
+        log("表单填写", f">> [{label_text}] 选择 Treeselect 叶子节点", "STEP")
         try:
-            result = self.page.evaluate("""() => {
-                // 在可见弹窗内找到户籍信息的 vue-treeselect 元素
+            result = self.page.evaluate(f"""() => {{
                 const wrappers = document.querySelectorAll('.el-dialog__wrapper');
-                for (const wrapper of wrappers) {
+                for (const wrapper of wrappers) {{
                     if (wrapper.style.display === 'none') continue;
-                    const tsEl = wrapper.querySelector('.vue-treeselect');
-                    if (!tsEl) continue;
+                    const body = wrapper.querySelector('.el-dialog__body');
+                    if (!body) continue;
 
-                    // 通过 __vue__ 回溯到拥有 districtTreeOptions 的父组件
-                    let vm = tsEl.__vue__;
-                    while (vm && !vm.districtTreeOptions && vm.$parent) {
+                    // === 精确定位：通过 form-item label 找到目标 Treeselect ===
+                    const formItems = body.querySelectorAll('.el-form-item');
+                    let targetTsEl = null;
+                    for (const fi of formItems) {{
+                        const labelEl = fi.querySelector('.el-form-item__label');
+                        if (!labelEl || !labelEl.textContent.includes('{label_text}')) continue;
+                        targetTsEl = fi.querySelector('.vue-treeselect');
+                        break;
+                    }}
+                    if (!targetTsEl) continue;
+
+                    // === 回溯到拥有 tree options 的父组件 ===
+                    let vm = targetTsEl.__vue__;
+                    while (vm && !vm.filteredDistrictTreeOptions && !vm.districtTreeOptions && vm.$parent) {{
                         vm = vm.$parent;
-                    }
-                    if (!vm || !vm.districtTreeOptions) continue;
+                    }}
+                    const options = vm.filteredDistrictTreeOptions || vm.districtTreeOptions;
+                    if (!options || options.length === 0) continue;
 
-                    // 递归找第一个叶子节点（无 children 或 children 为空数组）
-                    function findLeaf(nodes) {
-                        for (const n of nodes) {
+                    // === 递归找第一个叶子节点 ===
+                    function findLeaf(nodes) {{
+                        for (const n of nodes) {{
                             if (!n.children || n.children.length === 0) return n;
                             const r = findLeaf(n.children);
                             if (r) return r;
-                        }
+                        }}
                         return null;
-                    }
-
-                    const leaf = findLeaf(vm.districtTreeOptions);
+                    }}
+                    const leaf = findLeaf(options);
                     if (!leaf) continue;
 
-                    // 通过 Vue 组件响应式写入（等效于 v-model 赋值）
-                    const fieldCode = vm.fieldCodeHouseholdInfo || 'household_info';
-                    vm.$set(vm.saveFormData, fieldCode, String(leaf.id));
+                    // === 通过计算属性 setter 赋值（触发 Vue 响应式 + Treeselect UI 更新）===
+                    if ('installAddressForTreeselect' in vm) {{
+                        vm.installAddressForTreeselect = Number(leaf.id);
+                    }} else {{
+                        // 兜底: 直接 $set
+                        const fieldCode = vm.fieldCodeInstallAddress || 'install_address';
+                        if (vm.saveFormData) {{
+                            vm.$set(vm.saveFormData, fieldCode, String(leaf.id));
+                        }}
+                    }}
+
+                    // 强制 Treeselect 组件刷新 UI
+                    const tsVue = targetTsEl.__vue__;
+                    if (tsVue) {{
+                        if (tsVue.$forceUpdate) tsVue.$forceUpdate();
+                        if (tsVue.$parent && tsVue.$parent.$forceUpdate) tsVue.$parent.$forceUpdate();
+                    }}
+
                     return leaf.name || String(leaf.id);
-                }
+                }}
                 return null;
-            }""")
+            }}""")
 
             if result:
                 time.sleep(Config.SHORT_WAIT)
-                log("表单填写", f"✅ 户籍信息: 已选 [{result}]")
+                log("表单填写", f"✅ [{label_text}]: 已选 [{result}]")
             else:
-                log("表单填写", "⚠️ 户籍信息: 未能通过 Vue 实例设值", "WARN")
+                log("表单填写", f"⚠️ [{label_text}]: 未能通过 Vue 实例设值", "WARN")
+        except Exception as e:
+            log("表单填写", f"⚠️ [{label_text}] Treeselect 选择异常: {e}", "WARN")
+
+    def _select_huji_to_village(self):
+        """通过 JS + UI 交互选择户籍信息 — 逐级展开 Treeselect 至叶子节点。
+
+        vue-treeselect 监听 mousedown 事件打开菜单（不是 click 事件），
+        所以必须用 Playwright 原生 click（会触发完整 mousedown→mouseup→click 序列）
+        来打开下拉面板。
+        """
+        log("表单填写", ">> [户籍信息] 选择到村级", "STEP")
+        try:
+            # 1. 用 Playwright 定位并点击户籍信息的 Treeselect 控件
+            #    （Playwright click 会触发 mousedown 事件，JS click() 不会）
+            dialog = self.page.locator('.el-dialog__wrapper:visible')
+            huji_fi = dialog.locator('.el-form-item').filter(has_text='户籍信息')
+            ts_control = huji_fi.locator('.vue-treeselect__control').first
+            ts_control.click()
+            time.sleep(1)  # 等待 menu 渲染（append-to-body 到 body 级别）
+
+            # 2. 逐级展开分支并选择叶子节点（纯 JS 交互）
+            for depth in range(10):
+                result = self.page.evaluate("""() => {
+                    // 找到当前可见的 vue-treeselect menu
+                    const menus = document.querySelectorAll('.vue-treeselect__menu');
+                    let menu = null;
+                    for (let i = menus.length - 1; i >= 0; i--) {
+                        const m = menus[i];
+                        if (m.offsetHeight > 0 && m.offsetWidth > 0) {
+                            menu = m;
+                            break;
+                        }
+                    }
+                    if (!menu) return { error: 'no_visible_menu', total: menus.length };
+
+                    // 遍历所有 option
+                    const options = menu.querySelectorAll('.vue-treeselect__option');
+                    let visibleCount = 0;
+                    for (const opt of options) {
+                        // 跳过隐藏的 option（被折叠的子级）
+                        if (opt.offsetHeight === 0) continue;
+                        // 跳过有 --hide 类的
+                        if (opt.classList.contains('vue-treeselect__option--hide')) continue;
+                        visibleCount++;
+
+                        const arrowContainer = opt.querySelector('.vue-treeselect__option-arrow-container');
+
+                        if (arrowContainer) {
+                            // === 分支节点 ===
+                            const arrowEl = arrowContainer.querySelector('.vue-treeselect__option-arrow');
+                            const isExpanded = arrowEl && arrowEl.classList.contains('vue-treeselect__option-arrow--rotated');
+                            if (isExpanded) {
+                                continue; // 已展开，继续查找子级
+                            }
+                            // 未展开 → 点击箭头展开
+                            arrowContainer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                            return { action: 'expanded' };
+                        } else {
+                            // === 叶子节点 === → 点击选择
+                            const labelEl = opt.querySelector('.vue-treeselect__label');
+                            const text = labelEl ? labelEl.textContent.trim() : '';
+                            // vue-treeselect 用 mousedown 事件触发选择
+                            opt.querySelector('.vue-treeselect__label-container').dispatchEvent(
+                                new MouseEvent('mousedown', { bubbles: true })
+                            );
+                            return { action: 'selected', label: text };
+                        }
+                    }
+                    return { error: 'no_actionable_options', visible: visibleCount, total: options.length };
+                }""")
+
+                if not result or 'error' in result:
+                    log("表单填写", f"⚠️ 户籍信息调试: {result}", "WARN")
+                    break
+
+                if result.get('action') == 'selected':
+                    time.sleep(Config.SHORT_WAIT)
+                    log("表单填写", f"✅ 户籍信息: 已选 [{result.get('label', '')}]")
+                    return True
+                elif result.get('action') == 'expanded':
+                    time.sleep(0.5)
+                    continue
+
+            # 关闭可能残留的下拉面板，避免遮挡后续操作
+            self.page.keyboard.press("Escape")
+            time.sleep(0.3)
+            log("表单填写", "⚠️ 户籍信息: 未能完成选择", "WARN")
+            return False
+
         except Exception as e:
             log("表单填写", f"⚠️ 户籍信息选择异常: {e}", "WARN")
+            try:
+                self.page.keyboard.press("Escape")
+                time.sleep(0.3)
+            except:
+                pass
+            return False
+
+
 

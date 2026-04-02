@@ -129,7 +129,15 @@ class LedgerPage(BasePage):
 
     # ==================== 补贴申报表单填写 ====================
     def fill_subsidy_declaration(self, data):
-        """填写补贴申报表单（设备信息 + 安装信息 + 附件上传 + 提交）"""
+        """填写补贴申报表单（设备信息 + 安装信息 + 附件上传 + 提交）
+
+        基于前端 DeviceInfo.vue / InstallationInfo.vue / SpecialSubsidyInfo.vue 分析：
+        - 设备厂家、设备类型、设备型号均为 el-select（非 el-cascader）
+        - 三者存在前端级联过滤关系：厂家→类型→型号
+        - 选择厂家后 Vue 通过 filteredEquipmentTypeOptions 过滤类型选项
+        - 选择类型后 Vue 通过 filteredEquipmentModelOptions 过滤型号选项
+        - 每次级联选择后 Vue 用 cascaderTypeKey++ / cascaderModelKey++ 强制重渲染组件
+        """
         log("业务步骤", ">>> 正在填写补贴申报表单内容", "STEP")
         d = data
         try:
@@ -144,25 +152,38 @@ class LedgerPage(BasePage):
             except:
                 pass
 
-            # === 设备信息 ===
+            # ========== 设备信息 ==========
+            log("补贴申报", ">> [设备信息] 填写设备字段", "STEP")
+
             # 1. 购置金额
             self.fill_input_by_label("购置金额", d.get("purchase_amount", "3000"))
 
-            # 2. 级联下拉：设备厂家（el-select）→ 设备类型（el-cascader）→ 设备型号（el-cascader）
-            # 设备厂家是普通下拉，选择后触发前端级联加载设备类型选项
-            self.select_dropdown("设备厂家")
-            time.sleep(2)  # 等待前端根据厂家加载设备类型选项
+            # 2. 设备厂家 → 设备类型 → 设备型号
+            #    设备厂家: el-select | 设备类型: el-cascader | 设备型号: el-cascader
+            # 2.1 设备厂家 (el-select, 选择后触发级联重渲染)
+            self.select_dropdown_in_dialog("设备厂家")
+            time.sleep(Config.CASCADE_WAIT)   # 级联等待：Vue cascaderTypeKey++ 重渲染
+            self.wait_for_vue_update()
 
-            # 设备类型是级联选择器，选择后触发前端级联加载设备型号选项
-            self.select_cascader("设备类型")
-            time.sleep(2)  # 等待前端根据类型加载设备型号选项
+            # 2.2 设备类型 (el-cascader，选择后触发设备型号级联)
+            for attempt in range(3):
+                result = self.select_cascader_in_dialog("设备类型")
+                if result:
+                    break
+                time.sleep(1)
+            time.sleep(Config.CASCADE_WAIT)
+            self.wait_for_vue_update()
 
-            # 设备型号是级联选择器
-            self.select_cascader("设备型号")
-            time.sleep(1)
+            # 2.3 设备型号 (el-cascader)
+            for attempt in range(3):
+                result = self.select_cascader_in_dialog("设备型号")
+                if result:
+                    break
+                time.sleep(1)
+            time.sleep(Config.SHORT_WAIT)
 
             # 3. 能耗级别
-            self.select_dropdown("能耗级别")
+            self.select_dropdown_in_dialog("能耗级别")
 
             # 4. 质保日期
             self.pick_date("质保日期")
@@ -170,7 +191,9 @@ class LedgerPage(BasePage):
             # 5. 发票号码
             self.fill_input_by_label("发票号码", d.get("invoice_number", "INV20260324001"))
 
-            # === 安装信息 ===
+            # ========== 安装信息 ==========
+            log("补贴申报", ">> [安装信息] 填写安装字段", "STEP")
+
             # 6. 安装日期
             self.pick_date("安装日期")
 
@@ -180,8 +203,9 @@ class LedgerPage(BasePage):
             # 8. 安装人员联系电话
             self.fill_input_by_label("安装人员联系电话", d.get("installer_phone", "13800000000"))
 
-            # === 特殊补贴信息 ===
+            # ========== 特殊补贴信息 ==========
             special_subsidy = d.get("special_subsidy", "否")
+            log("补贴申报", f">> [特殊补贴] 是否申报: {special_subsidy}", "STEP")
             try:
                 special_section = self.page.locator(".el-form-item").filter(has_text="是否申报特殊补贴")
                 radio_btn = special_section.locator("label.el-radio").filter(has_text=special_subsidy).first
@@ -191,22 +215,20 @@ class LedgerPage(BasePage):
                     time.sleep(0.5)
                     log("表单填写", f"✅ 是否申报特殊补贴: 已选 [{special_subsidy}]")
 
-                    # 选"是"时需要额外填写2个字段
                     if special_subsidy == "是":
-                        time.sleep(1)
+                        self.wait_for_vue_update()
 
-                        # 1. 特殊补贴申报类型（下拉单选）
-                        self.select_dropdown("特殊补贴申报类型")
+                        # 特殊补贴申报类型（el-select）
+                        self.select_dropdown_in_dialog("特殊补贴申报类型")
 
-                        # 2. 特殊补贴证明材料（上传附件）
+                        # 特殊补贴证明材料（附件上传）
                         try:
                             test_img = os.path.join(os.getcwd(), "test_upload.png")
                             if os.path.exists(test_img):
-                                # 找特殊补贴证明材料的上传按钮
                                 cert_section = self.page.locator(".el-form-item").filter(has_text="特殊补贴证明材料")
                                 cert_input = cert_section.locator("input[type='file']").first
                                 cert_input.set_input_files(test_img)
-                                time.sleep(1)
+                                time.sleep(Config.UPLOAD_WAIT)
                                 log("表单填写", "✅ 特殊补贴证明材料: 已上传")
                         except Exception as e:
                             log("表单填写", f"⚠️ 特殊补贴证明材料上传失败: {e}", "WARN")
@@ -215,11 +237,21 @@ class LedgerPage(BasePage):
             except Exception as e:
                 log("表单填写", f"⚠️ 特殊补贴信息处理异常: {e}", "WARN")
 
-            # === 附件上传 ===
+            # ========== 附件上传 ==========
             self.upload_files()
+            # 等待所有附件上传完成（检测 el-upload-list__item 中是否有 uploading 状态）
+            try:
+                self.page.wait_for_function(
+                    """() => {
+                        const uploading = document.querySelectorAll('.el-upload-list__item.is-uploading');
+                        return uploading.length === 0;
+                    }""",
+                    timeout=10000
+                )
+            except:
+                time.sleep(Config.UPLOAD_WAIT)
 
-
-            # === 提交前校验 ===
+            # ========== 提交前校验 ==========
             empty_fields = []
             actual_values = {}
             check_fields = ["购置金额", "设备厂家", "设备类型", "设备型号",
@@ -253,7 +285,7 @@ class LedgerPage(BasePage):
             else:
                 log("补贴申报", "✅ 所有必填字段已填写", "OK")
 
-            # === 滚动弹窗到底部 ===
+            # ========== 滚动到底部并提交 ==========
             try:
                 self.page.evaluate("""() => {
                     document.querySelectorAll('.el-dialog__body').forEach(b => {
@@ -264,15 +296,25 @@ class LedgerPage(BasePage):
             except:
                 pass
 
-            # === 点击弹窗内的"保存并提交" ===
+            # 点击弹窗内"保存并提交"
             submit_btn = self.page.locator(".el-dialog__wrapper:visible button:has-text('保存并提交')").first
             try:
                 submit_btn.scroll_into_view_if_needed()
             except:
                 pass
             submit_btn.click(force=True)
-            time.sleep(Config.LONG_WAIT)
             log("补贴申报", "已点击 [保存并提交]")
+
+            # 智能等待响应（替代硬编码 time.sleep）
+            try:
+                self.page.wait_for_selector(
+                    ".el-message-box, .el-message--success, .el-message--error",
+                    timeout=Config.SUBMIT_TIMEOUT
+                )
+            except:
+                log("补贴申报", "⚠️ 等待提交响应超时", "WARN")
+
+            time.sleep(Config.SHORT_WAIT)
 
             # 二次确认弹窗
             try:
@@ -281,11 +323,14 @@ class LedgerPage(BasePage):
                 ).first
                 if confirm.is_visible(timeout=3000):
                     confirm.click()
-                    time.sleep(Config.LONG_WAIT)
+                    # 等待服务器响应
+                    self.wait_for_network_idle(timeout=10000)
+                    time.sleep(Config.MEDIUM_WAIT)
             except:
                 pass
 
-            # === 检测错误提示 ===
+            # ========== 检测结果 ==========
+            # 检测错误提示
             error_msg = self.page.locator(".el-message--error, .el-message-box__message")
             try:
                 if error_msg.first.is_visible(timeout=2000):
@@ -299,7 +344,7 @@ class LedgerPage(BasePage):
             except:
                 pass
 
-            # === 检测成功提示 ===
+            # 检测成功提示
             try:
                 success = self.page.locator(".el-message--success").first
                 if success.is_visible(timeout=5000):

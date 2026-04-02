@@ -10,6 +10,252 @@ class BasePage:
     def __init__(self, page):
         self.page = page
 
+    # ==================== Vue / 网络同步工具 ====================
+    def wait_for_vue_update(self, timeout=None):
+        """等待 Vue $nextTick 完成 + DOM 稳定。
+        
+        通过在页面中执行 Vue.nextTick() 并等待 DOM MutationObserver 静默，
+        确保 Vue 响应式更新（如级联选择器的选项过滤、key++ 强制重渲染等）已完成。
+        """
+        timeout = timeout or Config.VUE_TICK_TIMEOUT
+        try:
+            self.page.evaluate("""() => new Promise(resolve => {
+                // 等待 Vue.nextTick
+                if (window.Vue && window.Vue.nextTick) {
+                    window.Vue.nextTick(() => setTimeout(resolve, 100));
+                } else {
+                    // 兜底：使用 MutationObserver 检测 DOM 变化停止
+                    let timer;
+                    const observer = new MutationObserver(() => {
+                        clearTimeout(timer);
+                        timer = setTimeout(() => { observer.disconnect(); resolve(); }, 200);
+                    });
+                    observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+                    // 超时兜底
+                    setTimeout(() => { observer.disconnect(); resolve(); }, 1500);
+                }
+            })""")
+        except:
+            time.sleep(0.3)
+
+    def wait_for_network_idle(self, timeout=5000):
+        """安全地等待网络空闲，替代硬编码 time.sleep()"""
+        try:
+            self.page.wait_for_load_state("networkidle", timeout=timeout)
+        except:
+            time.sleep(1)
+
+    def select_dropdown_in_dialog(self, label_text, option_text=None, dialog_title=None):
+        """弹窗内精准下拉选择 — 限定在可见弹窗范围内操作 el-select。
+
+        解决多弹窗场景下 select_dropdown() 全局定位误命中背景页元素的问题。
+        如果 option_text 为空则选择第一个可用选项。
+
+        Args:
+            label_text: 表单标签文本，如 "设备厂家"
+            option_text: 指定选项文本，None 则选第一个可用项
+            dialog_title: 可选，限定弹窗标题
+        """
+        log("弹窗下拉", f">> 选择 [{label_text}]" + (f" -> [{option_text}]" if option_text else ""), "STEP")
+
+        # 通过 JS 在可见弹窗中精确定位 el-select 并点击展开
+        clicked = self.page.evaluate(f"""() => {{
+            const wrappers = document.querySelectorAll('.el-dialog__wrapper');
+            for (const wrapper of wrappers) {{
+                // el-dialog__wrapper 是 position:fixed，offsetParent 永远为 null
+                // 必须用 getComputedStyle 检查 display 属性
+                const wStyle = getComputedStyle(wrapper);
+                if (wStyle.display === 'none' || wStyle.visibility === 'hidden') continue;
+                {f"const header = wrapper.querySelector('.el-dialog__header'); if (!header || !header.textContent.includes('{dialog_title}')) continue;" if dialog_title else ""}
+                const body = wrapper.querySelector('.el-dialog__body');
+                if (!body) continue;
+                const formItems = body.querySelectorAll('.el-form-item');
+                for (const fi of formItems) {{
+                    if (fi.offsetHeight === 0) continue;
+                    const label = fi.querySelector('.el-form-item__label');
+                    if (!label || !label.textContent.includes('{label_text}')) continue;
+                    const inp = fi.querySelector('.el-select .el-input__inner');
+                    if (inp && !inp.disabled) {{
+                        inp.click();
+                        return true;
+                    }}
+                }}
+            }}
+            return false;
+        }}""")
+
+        if not clicked:
+            log("弹窗下拉", f"⚠️ [{label_text}]: 未在弹窗内找到可用的 el-select", "WARN")
+            # 降级到通用 select_dropdown
+            return self.select_dropdown(label_text)
+
+        time.sleep(Config.SHORT_WAIT)
+
+        # 等待下拉面板弹出
+        try:
+            self.page.wait_for_selector(
+                ".el-select-dropdown__item >> visible=true", timeout=3000
+            )
+        except:
+            log("弹窗下拉", f"⚠️ [{label_text}]: 下拉面板未弹出", "WARN")
+            self.page.keyboard.press("Escape")
+            return False
+
+        # 选择目标选项
+        if option_text:
+            opt = self.page.locator(
+                f".el-select-dropdown__item:has-text('{option_text}') >> visible=true"
+            )
+            if opt.count() > 0:
+                opt.first.click()
+                time.sleep(Config.SHORT_WAIT)
+                log("弹窗下拉", f"✅ [{label_text}]: 已选 [{option_text}]")
+                return True
+            log("弹窗下拉", f"⚠️ [{label_text}]: 未找到 '{option_text}' 选项", "WARN")
+            self.page.keyboard.press("Escape")
+            return False
+        else:
+            # 选择第一个可用选项
+            items = self.page.locator(".el-select-dropdown__item >> visible=true")
+            for i in range(items.count()):
+                item = items.nth(i)
+                classes = item.get_attribute("class") or ""
+                text = item.inner_text().strip()
+                if "is-disabled" in classes or text in ("", "请选择"):
+                    continue
+                item.click()
+                time.sleep(Config.SHORT_WAIT)
+                log("弹窗下拉", f"✅ [{label_text}]: 已选 [{text}]")
+                return True
+
+        log("弹窗下拉", f"⚠️ [{label_text}]: 无可选项", "WARN")
+        self.page.keyboard.press("Escape")
+        return False
+
+    def select_cascader_in_dialog(self, label_text, dialog_title=None):
+        """在弹窗内选择 el-cascader 组件（设备类型、设备型号）。
+
+        el-cascader 的 DOM 结构：
+          .el-cascader > .el-input > .el-input__inner  (点击打开面板)
+          .el-cascader-panel > .el-cascader-menu > .el-cascader-node (面板选项)
+
+        与 el-select 不同，el-cascader 是多级面板，需要逐级点击直到叶子节点。
+        设备类型/型号使用 :props="{ emitPath: false }" 配置，只返回最终值。
+
+        Args:
+            label_text: 表单标签文本
+            dialog_title: 可选，限定弹窗标题
+        """
+        log("弹窗级联", f">> 选择 [{label_text}]", "STEP")
+
+        # 1. 在弹窗中找到 el-cascader 并点击打开面板
+        clicked = self.page.evaluate(f"""() => {{
+            const wrappers = document.querySelectorAll('.el-dialog__wrapper');
+            for (const wrapper of wrappers) {{
+                const wStyle = getComputedStyle(wrapper);
+                if (wStyle.display === 'none' || wStyle.visibility === 'hidden') continue;
+                {"const header = wrapper.querySelector('.el-dialog__header'); if (!header || !header.textContent.includes('" + (dialog_title or '') + "')) continue;" if dialog_title else ""}
+                const body = wrapper.querySelector('.el-dialog__body');
+                if (!body) continue;
+                const formItems = body.querySelectorAll('.el-form-item');
+                for (const fi of formItems) {{
+                    if (fi.offsetHeight === 0) continue;
+                    const label = fi.querySelector('.el-form-item__label');
+                    if (!label || !label.textContent.includes('{label_text}')) continue;
+                    // el-cascader 的 input
+                    const inp = fi.querySelector('.el-cascader .el-input__inner');
+                    if (inp && !inp.disabled) {{
+                        inp.click();
+                        return true;
+                    }}
+                    // 兜底：检查是否 disabled
+                    const cascader = fi.querySelector('.el-cascader');
+                    if (cascader) {{
+                        const isDisabled = cascader.classList.contains('is-disabled');
+                        return {{ found: true, disabled: isDisabled }};
+                    }}
+                    return {{ found: false, label: label.textContent.trim() }};
+                }}
+            }}
+            return false;
+        }}""")
+
+        if not clicked:
+            log("弹窗级联", f"⚠️ [{label_text}]: 未在弹窗内找到 el-cascader", "WARN")
+            return False
+        if isinstance(clicked, dict):
+            if clicked.get('disabled'):
+                log("弹窗级联", f"⚠️ [{label_text}]: el-cascader 处于禁用状态", "WARN")
+                return False
+            if not clicked.get('found', True):
+                log("弹窗级联", f"⚠️ [{label_text}]: form-item 内无 el-cascader", "WARN")
+                return False
+
+        time.sleep(Config.SHORT_WAIT)
+
+        # 2. 等待级联面板出现
+        try:
+            self.page.wait_for_selector(
+                ".el-cascader-panel >> visible=true", timeout=3000
+            )
+        except:
+            log("弹窗级联", f"⚠️ [{label_text}]: 级联面板未弹出", "WARN")
+            self.page.keyboard.press("Escape")
+            return False
+
+        time.sleep(0.3)
+
+        # 3. 逐级选择第一个可用选项（最多5级深度）
+        for level in range(5):
+            # 找到当前级别面板中的第一个可选节点
+            result = self.page.evaluate(f"""() => {{
+                const panels = document.querySelectorAll('.el-cascader-panel');
+                // 取最后一个可见的 panel（避免命中隐藏面板）
+                let panel = null;
+                for (let i = panels.length - 1; i >= 0; i--) {{
+                    if (panels[i].offsetHeight > 0) {{ panel = panels[i]; break; }}
+                }}
+                if (!panel) return {{ error: 'no_panel' }};
+
+                // 获取所有级别的菜单
+                const menus = panel.querySelectorAll('.el-cascader-menu');
+                // 取最后一个菜单（最深层级）
+                const lastMenu = menus[menus.length - 1];
+                if (!lastMenu) return {{ error: 'no_menu' }};
+
+                // 找第一个非禁用节点
+                const nodes = lastMenu.querySelectorAll('.el-cascader-node');
+                for (const node of nodes) {{
+                    if (node.classList.contains('is-disabled')) continue;
+                    if (node.offsetHeight === 0) continue;
+                    const label = node.querySelector('.el-cascader-node__label');
+                    const text = label ? label.textContent.trim() : '';
+                    // 点击该节点
+                    node.click();
+                    // 检查是否是叶子节点（没有展开箭头）
+                    const hasArrow = node.querySelector('.el-icon-arrow-right') !== null;
+                    return {{ action: hasArrow ? 'expanded' : 'selected', label: text, level: menus.length }};
+                }}
+                return {{ error: 'no_selectable_nodes', menuCount: menus.length }};
+            }}""")
+
+            if not result or 'error' in result:
+                log("弹窗级联", f"⚠️ [{label_text}] 调试: {result}", "WARN")
+                break
+
+            if result.get('action') == 'selected':
+                time.sleep(Config.SHORT_WAIT)
+                log("弹窗级联", f"✅ [{label_text}]: 已选 [{result.get('label', '')}]")
+                return True
+            elif result.get('action') == 'expanded':
+                time.sleep(0.5)  # 等待下一级菜单加载
+                continue
+
+        log("弹窗级联", f"⚠️ [{label_text}]: 未能完成级联选择", "WARN")
+        self.page.keyboard.press("Escape")
+        return False
+
+
     # ==================== 通用菜单导航 ====================
     def navigate_to_menu(self, submenu_text, menu_item_text, wait_selector,
                          wait_timeout=None, top_menu_text="清洁能源"):

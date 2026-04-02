@@ -109,6 +109,10 @@ class Config:
     SHORT_WAIT = 0.5           # 短等待
     MEDIUM_WAIT = 1.0          # 中等待
     LONG_WAIT = 2.0            # 长等待
+    CASCADE_WAIT = 1.5         # 级联选择器选择后等待 Vue 重新渲染（厂家→类型→型号）
+    UPLOAD_WAIT = 2.0          # 附件上传后等待完成（el-upload 异步）
+    SUBMIT_TIMEOUT = 15_000    # 提交按钮点击后等待响应（ms）
+    VUE_TICK_TIMEOUT = 3_000   # 等待 Vue $nextTick + DOM 稳定（ms）
 
     # --- 路径配置 (使用绝对路径，避免由于执行目录不同导致的找不到文件) ---
     SCREENSHOT_DIR = os.path.join(_ROOT_DIR, "screenshots") # 截图存放目录
