@@ -133,18 +133,22 @@ class TestDeviceUpdateFlow:
             log("E2E", f">>> 正在创建设备更新草稿 <<<", "STEP")
             update_order_id = declaration_page.create_device_update_record(household_id_card, update_data, submit_action="save")
             
+            # 从表单回显中抓取真实的用户编号（原台账带入，非脚本生成）
+            real_user_number = getattr(declaration_page, 'last_user_number', None) or user_number
+            log("E2E", f"设备更新使用的用户编号: {real_user_number}", "INFO")
+            
             # 确保在列表页刷新状态
             declaration_page.navigate_to_declaration()
             
             # b. 到新增申报信息管理页用用户编号去查询设备更新保存的草稿，查到后，点击修改按钮修改重新保存
             log("E2E", f">>> 正在查询并修改设备更新草稿 <<<", "STEP")
-            new_area = update_data.get("heating_area", 100) + 12
-            modify_success = declaration_page.update_record(user_number, new_area)
+            new_area = int(update_data.get("heating_area", 100)) + 12
+            modify_success = declaration_page.update_record(real_user_number, new_area)
             assert modify_success, "❌ 修改设备更新申报草稿失败"
             
             # c. 再次用用户编号查询该条记录，查到后，点击上报
             log("E2E", f">>> 正在查询并上报设备更新草稿 <<<", "STEP")
-            report_success = declaration_page.report_record(user_number)
+            report_success = declaration_page.report_record(real_user_number)
             assert report_success, "❌ 上报设备更新申报草稿失败"
             
             log("E2E", f"✅ 设备更新申报保存-修改-上报流程执行成功: {update_order_id or '通过用户编号执行'}", "OK")
@@ -158,9 +162,9 @@ class TestDeviceUpdateFlow:
             audit_page = AuditPage(page)
             audit_page.navigate_to_audit()
 
-            result = audit_page.perform_approve(user_number, comment="自动化测试：设备更新审核通过")
-            assert result, f"❌ 镇级用户审核设备更新 [{user_number}] 失败"
-            log("E2E", f"✅ 设备更新 [{user_number}] 审核通过，数据进入台账", "OK")
+            result = audit_page.perform_approve(real_user_number, comment="自动化测试：设备更新审核通过")
+            assert result, f"❌ 镇级用户审核设备更新 [{real_user_number}] 失败"
+            log("E2E", f"✅ 设备更新 [{real_user_number}] 审核通过，数据进入台账", "OK")
 
         # ==================== 步骤3：村级用户补贴申报 ====================
 

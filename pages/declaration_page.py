@@ -487,7 +487,8 @@ class DeclarationPage(BasePage):
             return False
 
         try:
-            self.page.locator("table.el-table__body tr").first.locator("button:has-text('修改')").click()
+            edit_btn = self.page.locator("table.el-table__body tr").first.locator("button:has-text('编辑'), button:has-text('修改')").first
+            edit_btn.click()
             time.sleep(Config.LONG_WAIT)
             
             # 定位对应的弹窗内部
