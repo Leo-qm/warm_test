@@ -149,3 +149,17 @@ class Config:
         os.makedirs(report_dir, exist_ok=True)
         return os.path.join(report_dir, filename)
 
+    @classmethod
+    def get_api_base_url(cls):
+        """
+        获取后端 API 基础地址
+        从前端页面 URL 推导：取 origin（协议+域名+端口）拼接 /agri-api
+        例：https://rural.touchit.com.cn/agri/#/... → https://rural.touchit.com.cn/agri-api
+        例：http://localhost:8888/ → http://localhost:8888/agri-api
+        """
+        from urllib.parse import urlparse
+        base_url = cls.get_base_url()
+        parsed = urlparse(base_url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        return f"{origin}/agri-api"
+

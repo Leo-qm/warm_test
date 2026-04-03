@@ -16,6 +16,7 @@ from pages.ledger_page import LedgerPage
 from utils.data_factory import DataFactory
 from utils.config import Config
 from utils.logger import log
+from utils.subsidy_calculator import SubsidyCalculator
 
 
 @allure.feature("E2E 设备更新全链路")
@@ -197,6 +198,16 @@ class TestDeviceUpdateFlow:
             form_result = submitted if isinstance(submitted, dict) else {}
             log("E2E", "✅ 补贴申报表单已提交，等待镇级审核", "OK")
 
+        # ==================== 预计补贴金额验算 ====================
+        with allure.step("步骤3 - 补贴金额验算"):
+            self._verify_subsidy_calculation(
+                page=page,
+                purchase_amount=test_data["purchase_amount"],
+                special_subsidy=special_subsidy,
+                form_result=form_result,
+                form_type="EQUIPMENT_UPDATE"
+            )
+
         # ==================== 步骤4：镇级用户审核补贴 ====================
 
         with allure.step("步骤4: 镇级用户审核设备更新补贴"):
@@ -225,3 +236,67 @@ class TestDeviceUpdateFlow:
         log("E2E", f"  预计补贴: ¥{form_result.get('预计补贴', '-')}", "OK")
         log("E2E", f"  特殊补贴: {special_subsidy}", "OK")
         log("E2E", "=" * 60, "OK")
+
+    # ==================== 补贴金额验算 ====================
+    @staticmethod
+    def _verify_subsidy_calculation(page, purchase_amount, special_subsidy, form_result, form_type="EQUIPMENT_UPDATE"):
+        """
+        调用 SubsidyCalculator 计算预期补贴金额，与前端实际展示值对比验算。
+
+        计算算法（复刻前端 DeviceInfo.vue）：
+          1. 基础补贴 = min(购置金额 × 比例%, 最高限额)  ← 基本/生态互斥
+          2. 特殊补贴 = min(剩余金额 × 特殊比例%, 特殊限额)  ← 对剩余金额再算
+          3. 总补贴 = 基础补贴 + 特殊补贴
+
+        :param page: Playwright Page 对象
+        :param purchase_amount: 购置金额（来自测试数据）
+        :param special_subsidy: "是" 或 "否"
+        :param form_result: 表单提交后返回的实际值字典
+        :param form_type: 表单类型 EQUIPMENT_SUBSIDY / EQUIPMENT_UPDATE
+        """
+        log("E2E", ">>> [补贴验算] 开始计算预计补贴金额并与前端对比 <<<", "STEP")
+        try:
+            # 1. 从浏览器创建计算器实例（自动获取 token / tenant-id）
+            calculator = SubsidyCalculator.from_page(page)
+
+            # 2. 加载补贴配置和区域列表
+            config = calculator.load_subsidy_config()
+            if not config:
+                log("E2E", "⚠️ 无法获取补贴配置，跳过验算", "WARN")
+                return
+
+            calculator.load_district_list()
+
+            # 3. 判断是否生态涵养区（E2E 测试用村级账号所属区域）
+            is_ecological = calculator.is_ecological_area()
+
+            # 4. 判断特殊补贴条件
+            is_special = (special_subsidy == "是")
+            # 选"是"且已选择特殊补贴类型时才计入
+            has_special_type = is_special
+
+            # 5. 计算并输出详细过程
+            expected_subsidy = calculator.calculate_and_log(
+                purchase_amount=float(purchase_amount),
+                is_ecological=is_ecological,
+                is_special_subsidy=is_special,
+                has_special_type=has_special_type,
+            )
+
+            # 6. 对比前端实际值
+            ui_subsidy_str = form_result.get("预计补贴", "")
+            if ui_subsidy_str:
+                try:
+                    ui_subsidy = float(ui_subsidy_str)
+                    diff = abs(ui_subsidy - expected_subsidy)
+                    if diff < 0.01:
+                        log("E2E", f"✅ 补贴金额验算通过! 前端显示: ¥{ui_subsidy}, 脚本计算: ¥{expected_subsidy}", "OK")
+                    else:
+                        log("E2E", f"⚠️ 补贴金额存在差异! 前端显示: ¥{ui_subsidy}, 脚本计算: ¥{expected_subsidy}, 差额: ¥{diff}", "WARN")
+                except ValueError:
+                    log("E2E", f"⚠️ 前端预计补贴值非数字: '{ui_subsidy_str}', 脚本计算: ¥{expected_subsidy}", "WARN")
+            else:
+                log("E2E", f"⚠️ 未从前端获取到预计补贴值, 脚本计算: ¥{expected_subsidy}", "WARN")
+
+        except Exception as e:
+            log("E2E", f"⚠️ 补贴金额验算过程出错（不影响主流程）: {e}", "WARN")
