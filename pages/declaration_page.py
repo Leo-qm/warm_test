@@ -273,7 +273,7 @@ class DeclarationPage(BasePage):
             fill_in_dialog("申报人联系电话", data.get("applicant_phone", ""), "申报人联系电话")
             
             # 户籍信息（树形下拉，需逐级展开到村级）
-            self._select_huji_to_village()
+            self._select_cascader_first_leaf("户籍信息", "household-area-cascader-popper")
         else:
             log("设备更新", "  当前选择[是否户主]为“是”，跳过申报人名称/电话/户籍信息的填写 (原台账已带入)", "OK")
 
@@ -286,7 +286,7 @@ class DeclarationPage(BasePage):
 
         # 6.3 基本信息区块（门牌号、银行卡号、开户人姓名）
         log("设备更新", ">> [基本信息] 填写空字段", "STEP")
-        if body:
+        if body and body.count() > 0 and body.is_visible(timeout=500):
             body.evaluate("el => el.scrollTop += 600")
             time.sleep(0.5)
         
@@ -300,7 +300,7 @@ class DeclarationPage(BasePage):
         
         # 6.4 统一上传附件（证明材料）
         log("设备更新", ">> [附件] 上传证明材料", "STEP")
-        if body:
+        if body and body.count() > 0 and body.is_visible(timeout=500):
             body.evaluate("el => el.scrollTop = 0")
             time.sleep(0.5)
         self.upload_files()
@@ -310,7 +310,7 @@ class DeclarationPage(BasePage):
         
         # 8. 滚动到底部并点击「保存并提交」
         log("设备更新", ">> 点击保存并提交", "STEP")
-        if body:
+        if body and body.count() > 0 and body.is_visible(timeout=500):
             body.evaluate("el => el.scrollTop = el.scrollHeight")
             time.sleep(0.5)
         try:
@@ -516,13 +516,14 @@ class DeclarationPage(BasePage):
                 confirm_btn = self.page.locator(
                     ".el-message-box__btns button:has-text('确定')"
                 ).last
-                if confirm_btn.is_visible():
+                try:
+                    confirm_btn.wait_for(state="visible", timeout=3000)
                     confirm_btn.click()
                     time.sleep(Config.LONG_WAIT)
                     log("上报", f"✅ 用户编号 [{user_number}] 上报成功", "OK")
                     return True
-                else:
-                    log("上报", "❌ 未找到上报确认按钮", "ERROR")
+                except Exception:
+                    log("上报", "❌ 未找到上报确认按钮 (超时或未渲染)", "ERROR")
             else:
                 log("上报", "❌ 列表中未找到【上报】按钮", "ERROR")
             return False
@@ -552,12 +553,13 @@ class DeclarationPage(BasePage):
                     ".el-message-box__btns button:has-text('删除')"
                 ).last
 
-                if confirm_btn.is_visible():
+                try:
+                    confirm_btn.wait_for(state="visible", timeout=3000)
                     confirm_btn.click()
                     time.sleep(Config.LONG_WAIT)
                     log("删除", f"✅ 申报编号 [{order_id}] 删除成功", "OK")
-                else:
-                    log("删除", "❌ 未找到删除确认按钮", "ERROR")
+                except Exception:
+                    log("删除", "❌ 未找到删除确认按钮 (超时或未渲染)", "ERROR")
             else:
                 log("删除", "❌ 未找到【删除】按钮", "ERROR")
         except Exception as e:
@@ -612,7 +614,7 @@ class DeclarationPage(BasePage):
         # 区块 4: 基础信息
         log("表单", ">>> [Section 4] 基础信息", "STEP")
 
-        if body:
+        if body and body.count() > 0 and body.is_visible(timeout=500):
             body.evaluate("el => el.scrollTop += 600")
             time.sleep(0.3)
         self.safe_fill("input[placeholder*='用户编号']", d["user_number"], "用户编号")
@@ -620,7 +622,7 @@ class DeclarationPage(BasePage):
         self.safe_fill("input[placeholder*='开户人姓名']", d["account_holder_name"], "开户人姓名")
 
         # 统一上传附件
-        if body:
+        if body and body.count() > 0 and body.is_visible(timeout=500):
             body.evaluate("el => el.scrollTop = 0")
             time.sleep(0.3)
         self.upload_files()
