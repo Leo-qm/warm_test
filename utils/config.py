@@ -160,10 +160,11 @@ class Config:
     def needs_portal_navigation(cls):
         """
         判断当前环境登录后是否需要经过门户首页跳转
-        test-without-support-platform 环境不跳转支撑平台，登录流程与本地一致
-        """
+        目前所有环境均需要门户跳转，如果后续环境不需要跳转，请修改此方法，示例如下：
         if cls.ENV_TYPE == "test-without-support-platform":
             return False
+        return True
+        """
         return True
 
     @classmethod

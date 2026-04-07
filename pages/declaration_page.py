@@ -591,8 +591,8 @@ class DeclarationPage(BasePage):
         # 区块 2: 申报人信息
         log("表单", ">>> [Section 2] 申报人信息 (处理禁用联动)", "STEP")
 
-        # 是否户主 — 前端 ApplicantInfo.vue 使用 el-select（不是基于 placeholder 的 input）
-        self.select_dropdown("是否户主")
+        # 是否户主 — 前端 ApplicantInfo.vue 使用 el-select，需传入具体选项值（"是"/"否"）
+        self.select_dropdown("是否户主", d.get("is_household"))
         self.wait_for_vue_update()  # 选择后可能触发申报人字段的禁用/启用联动
 
         self.safe_fill("input[placeholder='请输入申报人姓名']", d["applicant_name"], "申报人姓名")
