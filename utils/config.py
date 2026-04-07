@@ -24,8 +24,13 @@ class Config:
     _ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     # ================= 配置开关 (一键切换) =================
-    # 环境切换：可选 "local" (本地开发环境), "test" (联调/测试环境)
-    ENV_TYPE = "test" 
+    # 环境切换：
+    # "local" (本地开发环境)
+    # "test" (联调/测试环境)
+    # "test-without-support-platform" (测试环境但登录页与本地一致)
+    # "prod" (生产环境)
+    # =================================================
+    ENV_TYPE = "test-without-support-platform" 
     
     # =================================================
 
@@ -49,6 +54,28 @@ class Config:
                 "district": {"username": "liquyi",    "password": "Pass@000000"},
                 "town":     {"username": "lizhenyi2", "password": "Pass@000000"},
                 "village":  {"username": "licunyi",   "password": "Pass@000000"},
+            }
+        },
+        # 过渡环境：URL 和账号与 test 一致，但登录页行为与 local 一致（不跳转支撑平台）
+        "test-without-support-platform": {
+            "url": "https://rural.touchit.com.cn/agri/#/admin?redirect=%2FcleanEnergy",
+            "accounts": {
+                "admin":    {"username": "18800000060",    "password": "Pass@000000"},
+                "city":     {"username": "lishiyi",   "password": "Pass@000000"},
+                "district": {"username": "liquyi",    "password": "Pass@000000"},
+                "town":     {"username": "lizhenyi2", "password": "Pass@000000"},
+                "village":  {"username": "licunyi",   "password": "Pass@000000"},
+            }
+        },
+        # 生产环境（预留占位，URL 和账号待填写）
+        "prod": {
+            "url": "",
+            "accounts": {
+                "admin":    {"username": "", "password": ""},
+                "city":     {"username": "", "password": ""},
+                "district": {"username": "", "password": ""},
+                "town":     {"username": "", "password": ""},
+                "village":  {"username": "", "password": ""},
             }
         }
     }
@@ -125,16 +152,18 @@ class Config:
     def get_captcha_length(cls):
         """
         获取当前环境的验证码位数
-        local 环境为 5 位，test 环境为 4 位
+        local / test-without-support-platform 环境为 5 位，test / prod 环境为 4 位
         """
-        return 5 if cls.ENV_TYPE == "local" else 4
+        return 5 if cls.ENV_TYPE in ("local", "test-without-support-platform") else 4
 
     @classmethod
     def needs_portal_navigation(cls):
         """
         判断当前环境登录后是否需要经过门户首页跳转
-        目前 local 和 test 环境均需要经过门户首页
+        test-without-support-platform 环境不跳转支撑平台，登录流程与本地一致
         """
+        if cls.ENV_TYPE == "test-without-support-platform":
+            return False
         return True
 
     @classmethod

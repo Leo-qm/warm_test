@@ -569,8 +569,8 @@ class DeclarationPage(BasePage):
         """填写设备新增的4个区块表单字段
 
         基于前端组件分析：
-        - HouseholdInfo.vue: 户主姓名/身份证号/联系电话(el-input)，安装地址(Treeselect)，门牌号/客户编号(el-input)
-        - ApplicantInfo.vue: 是否户主(el-select)，申报人姓名/身份证号/联系电话(el-input)，户籍信息(Treeselect)，采暖面积(el-input)
+        - HouseholdInfo.vue: 户主姓名/身份证号/联系电话(el-input)，安装地址(el-cascader)，门牌号/客户编号(el-input)
+        - ApplicantInfo.vue: 是否户主(el-select)，申报人姓名/身份证号/联系电话(el-input)，户籍信息(el-cascader)，采暖面积(el-input)
         - DeclarationType.vue: 能源类型(el-select)
         - BasicInfoUpload.vue: 用户编号/银行卡号/开户人姓名(el-input)，附件上传(file-upload)
         """
@@ -582,8 +582,8 @@ class DeclarationPage(BasePage):
         self.safe_fill("input[placeholder='请输入身份证号']", d["id_card"], "身份证号")
         self.safe_fill("input[placeholder='请输入联系电话']", d["phone"], "联系电话")
 
-        # 安装地址 — 前端使用 Treeselect 组件（不是普通 input），需通过 Vue 实例赋值
-        self._select_treeselect_first_leaf("安装地址")
+        # 安装地址 — 前端使用 el-cascader 组件（区→镇→村 三级级联）
+        self._select_cascader_first_leaf("安装地址", "household-install-address-cascader-popper")
 
         self.safe_fill("input[placeholder='请输入门牌号']", d["door_number"], "门牌号")
         self.safe_fill("input[placeholder='请输入客户编号']", d["customer_id"], "客户编号")
@@ -599,8 +599,8 @@ class DeclarationPage(BasePage):
         self.safe_fill("input[placeholder='请输入申报人身份证号']", d["applicant_id_card"], "申报人身份证号")
         self.safe_fill("input[placeholder='请输入申报人联系电话']", d["applicant_phone"], "申报人联系电话")
 
-        # 户籍信息（Treeselect 组件，通过 Vue 实例直接设值）
-        self._select_huji_to_village()
+        # 户籍信息 — 前端使用 el-cascader 组件（区→镇→村 三级级联）
+        self._select_cascader_first_leaf("户籍信息", "household-area-cascader-popper")
 
         self.safe_fill("input[placeholder*='采暖面积']", d["heating_area"], "采暖面积")
 
@@ -697,182 +697,127 @@ class DeclarationPage(BasePage):
 
 
 
-    def _select_treeselect_first_leaf(self, label_text):
-        """选择 Treeselect 组件的第一个叶子节点 — 通过 form-item label 精确定位 + 计算属性 setter 赋值。
+    def _select_cascader_first_leaf(self, label_text, popper_class=None):
+        """通过 el-cascader 逐级选择第一个可用叶子节点（适配 append-to-body 面板）。
 
-        前端 HouseholdInfo.vue 中安装地址使用 @riophae/vue-treeselect 组件：
-          <Treeselect v-model="installAddressForTreeselect"
-                      :options="filteredDistrictTreeOptions" />
-        计算属性 setter 会调用 $set(saveFormData, fieldCode, String(val))
+        前端 HouseholdInfo.vue / ApplicantInfo.vue 中安装地址与户籍信息已从
+        @riophae/vue-treeselect 升级为 el-cascader，关键配置：
+          - append-to-body: true  → 面板渲染在 body 而非弹窗 DOM 内
+          - emitPath: true        → v-model 为 [区id, 镇id, 村id] 路径数组
+          - filteredDistrictTreeOptions → 仅保留 areaLevel=3(村级) 可达路径
+          - popper-class: 独立标识，可用于精准定位面板
 
         Args:
-            label_text: 表单标签文本，如 "安装地址"
+            label_text: 表单标签文本，如 "安装地址"、"户籍信息"
+            popper_class: cascader 面板的 popper-class，如 "household-install-address-cascader-popper"
         """
-        log("表单填写", f">> [{label_text}] 选择 Treeselect 叶子节点", "STEP")
+        log("表单填写", f">> [{label_text}] 选择 el-cascader 叶子节点", "STEP")
         try:
-            result = self.page.evaluate(f"""() => {{
-                const wrappers = document.querySelectorAll('.el-dialog__wrapper');
-                for (const wrapper of wrappers) {{
-                    if (wrapper.style.display === 'none') continue;
-                    const body = wrapper.querySelector('.el-dialog__body');
-                    if (!body) continue;
-
-                    // === 精确定位：通过 form-item label 找到目标 Treeselect ===
-                    const formItems = body.querySelectorAll('.el-form-item');
-                    let targetTsEl = null;
-                    for (const fi of formItems) {{
-                        const labelEl = fi.querySelector('.el-form-item__label');
-                        if (!labelEl || !labelEl.textContent.includes('{label_text}')) continue;
-                        targetTsEl = fi.querySelector('.vue-treeselect');
-                        break;
-                    }}
-                    if (!targetTsEl) continue;
-
-                    // === 回溯到拥有 tree options 的父组件 ===
-                    let vm = targetTsEl.__vue__;
-                    while (vm && !vm.filteredDistrictTreeOptions && !vm.districtTreeOptions && vm.$parent) {{
-                        vm = vm.$parent;
-                    }}
-                    const options = vm.filteredDistrictTreeOptions || vm.districtTreeOptions;
-                    if (!options || options.length === 0) continue;
-
-                    // === 递归找第一个叶子节点 ===
-                    function findLeaf(nodes) {{
-                        for (const n of nodes) {{
-                            if (!n.children || n.children.length === 0) return n;
-                            const r = findLeaf(n.children);
-                            if (r) return r;
-                        }}
-                        return null;
-                    }}
-                    const leaf = findLeaf(options);
-                    if (!leaf) continue;
-
-                    // === 通过计算属性 setter 赋值（触发 Vue 响应式 + Treeselect UI 更新）===
-                    if ('installAddressForTreeselect' in vm) {{
-                        vm.installAddressForTreeselect = Number(leaf.id);
-                    }} else {{
-                        // 兜底: 直接 $set
-                        const fieldCode = vm.fieldCodeInstallAddress || 'install_address';
-                        if (vm.saveFormData) {{
-                            vm.$set(vm.saveFormData, fieldCode, String(leaf.id));
-                        }}
-                    }}
-
-                    // 强制 Treeselect 组件刷新 UI
-                    const tsVue = targetTsEl.__vue__;
-                    if (tsVue) {{
-                        if (tsVue.$forceUpdate) tsVue.$forceUpdate();
-                        if (tsVue.$parent && tsVue.$parent.$forceUpdate) tsVue.$parent.$forceUpdate();
-                    }}
-
-                    return leaf.name || String(leaf.id);
-                }}
-                return null;
-            }}""")
-
-            if result:
-                time.sleep(Config.SHORT_WAIT)
-                log("表单填写", f"✅ [{label_text}]: 已选 [{result}]")
-            else:
-                log("表单填写", f"⚠️ [{label_text}]: 未能通过 Vue 实例设值", "WARN")
-        except Exception as e:
-            log("表单填写", f"⚠️ [{label_text}] Treeselect 选择异常: {e}", "WARN")
-
-    def _select_huji_to_village(self):
-        """通过 JS + UI 交互选择户籍信息 — 逐级展开 Treeselect 至叶子节点。
-
-        vue-treeselect 监听 mousedown 事件打开菜单（不是 click 事件），
-        所以必须用 Playwright 原生 click（会触发完整 mousedown→mouseup→click 序列）
-        来打开下拉面板。
-        """
-        log("表单填写", ">> [户籍信息] 选择到村级", "STEP")
-        try:
-            # 1. 用 Playwright 定位并点击户籍信息的 Treeselect 控件
-            #    （Playwright click 会触发 mousedown 事件，JS click() 不会）
+            # 1. 在弹窗中找到 label 对应的 el-cascader 并点击打开面板
             dialog = self.page.locator('.el-dialog__wrapper:visible')
-            huji_fi = dialog.locator('.el-form-item').filter(has_text='户籍信息')
-            ts_control = huji_fi.locator('.vue-treeselect__control').first
-            ts_control.click()
-            time.sleep(1)  # 等待 menu 渲染（append-to-body 到 body 级别）
+            form_item = dialog.locator('.el-form-item').filter(has_text=label_text)
+            cascader_input = form_item.locator('.el-cascader .el-input__inner').first
 
-            # 2. 逐级展开分支并选择叶子节点（纯 JS 交互）
-            for depth in range(10):
-                result = self.page.evaluate("""() => {
-                    // 找到当前可见的 vue-treeselect menu
-                    const menus = document.querySelectorAll('.vue-treeselect__menu');
-                    let menu = null;
-                    for (let i = menus.length - 1; i >= 0; i--) {
-                        const m = menus[i];
-                        if (m.offsetHeight > 0 && m.offsetWidth > 0) {
-                            menu = m;
-                            break;
-                        }
-                    }
-                    if (!menu) return { error: 'no_visible_menu', total: menus.length };
+            if not cascader_input.is_visible(timeout=3000):
+                log("表单填写", f"⚠️ [{label_text}]: 未找到 el-cascader", "WARN")
+                return False
 
-                    // 遍历所有 option
-                    const options = menu.querySelectorAll('.vue-treeselect__option');
-                    let visibleCount = 0;
-                    for (const opt of options) {
-                        // 跳过隐藏的 option（被折叠的子级）
-                        if (opt.offsetHeight === 0) continue;
-                        // 跳过有 --hide 类的
-                        if (opt.classList.contains('vue-treeselect__option--hide')) continue;
-                        visibleCount++;
+            if cascader_input.is_disabled():
+                log("表单填写", f"⏭️ [{label_text}] 已禁用，跳过")
+                return True
 
-                        const arrowContainer = opt.querySelector('.vue-treeselect__option-arrow-container');
+            cascader_input.click(force=True)
+            time.sleep(Config.SHORT_WAIT)
 
-                        if (arrowContainer) {
-                            // === 分支节点 ===
-                            const arrowEl = arrowContainer.querySelector('.vue-treeselect__option-arrow');
-                            const isExpanded = arrowEl && arrowEl.classList.contains('vue-treeselect__option-arrow--rotated');
-                            if (isExpanded) {
-                                continue; // 已展开，继续查找子级
-                            }
-                            // 未展开 → 点击箭头展开
-                            arrowContainer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                            return { action: 'expanded' };
-                        } else {
-                            // === 叶子节点 === → 点击选择
-                            const labelEl = opt.querySelector('.vue-treeselect__label');
-                            const text = labelEl ? labelEl.textContent.trim() : '';
-                            // vue-treeselect 用 mousedown 事件触发选择
-                            opt.querySelector('.vue-treeselect__label-container').dispatchEvent(
-                                new MouseEvent('mousedown', { bubbles: true })
-                            );
-                            return { action: 'selected', label: text };
-                        }
-                    }
-                    return { error: 'no_actionable_options', visible: visibleCount, total: options.length };
-                }""")
+            # 2. 等待级联面板弹出（面板通过 append-to-body 渲染在 body 上）
+            #    优先用 popper_class 精准定位面板，兜底用通用选择器
+            if popper_class:
+                panel_selector = f".{popper_class} .el-cascader-panel"
+            else:
+                panel_selector = ".el-cascader-panel"
+
+            try:
+                self.page.wait_for_selector(
+                    f"{panel_selector} >> visible=true", timeout=5000
+                )
+            except:
+                # 重试点击
+                cascader_input.click(force=True)
+                time.sleep(Config.MEDIUM_WAIT)
+                try:
+                    self.page.wait_for_selector(
+                        f"{panel_selector} >> visible=true", timeout=5000
+                    )
+                except:
+                    log("表单填写", f"⚠️ [{label_text}]: 级联面板未弹出", "WARN")
+                    self.page.keyboard.press("Escape")
+                    return False
+
+            time.sleep(0.3)
+
+            # 3. 逐级选择第一个可用节点直到叶子（最多5级深度）
+            for level in range(5):
+                result = self.page.evaluate(f"""() => {{
+                    // 通过 popper-class 精准定位面板容器
+                    let panelContainer = null;
+                    {'const popper = document.querySelector(".' + popper_class + '"); if (popper) panelContainer = popper.querySelector(".el-cascader-panel");' if popper_class else ''}
+                    if (!panelContainer) {{
+                        // 兜底：取最后一个可见的 el-cascader-panel
+                        const panels = document.querySelectorAll('.el-cascader-panel');
+                        for (let i = panels.length - 1; i >= 0; i--) {{
+                            if (panels[i].offsetHeight > 0) {{ panelContainer = panels[i]; break; }}
+                        }}
+                    }}
+                    if (!panelContainer) return {{ error: 'no_panel' }};
+
+                    // 获取所有级别的菜单列
+                    const menus = panelContainer.querySelectorAll('.el-cascader-menu');
+                    if (!menus.length) return {{ error: 'no_menu' }};
+
+                    // 取最后一个菜单（当前最深展开级别）
+                    const lastMenu = menus[menus.length - 1];
+                    const nodes = lastMenu.querySelectorAll('.el-cascader-node');
+
+                    for (const node of nodes) {{
+                        if (node.classList.contains('is-disabled')) continue;
+                        if (node.offsetHeight === 0) continue;
+                        const label = node.querySelector('.el-cascader-node__label');
+                        const text = label ? label.textContent.trim() : '';
+                        if (!text || text === '请选择') continue;
+
+                        // 点击该节点
+                        node.click();
+
+                        // 判断是否是叶子节点（叶子没有展开箭头）
+                        const hasArrow = node.querySelector('.el-icon-arrow-right') !== null;
+                        return {{ action: hasArrow ? 'expanded' : 'selected', label: text, level: menus.length }};
+                    }}
+                    return {{ error: 'no_selectable_nodes', menuCount: menus.length }};
+                }}""")
 
                 if not result or 'error' in result:
-                    log("表单填写", f"⚠️ 户籍信息调试: {result}", "WARN")
+                    log("表单填写", f"⚠️ [{label_text}] 级联调试: {result}", "WARN")
                     break
 
                 if result.get('action') == 'selected':
                     time.sleep(Config.SHORT_WAIT)
-                    log("表单填写", f"✅ 户籍信息: 已选 [{result.get('label', '')}]")
+                    log("表单填写", f"✅ [{label_text}]: 已选 [{result.get('label', '')}]")
                     return True
                 elif result.get('action') == 'expanded':
-                    time.sleep(0.5)
+                    time.sleep(0.5)  # 等待下一级菜单加载
                     continue
 
-            # 关闭可能残留的下拉面板，避免遮挡后续操作
+            # 关闭可能残留的面板
             self.page.keyboard.press("Escape")
             time.sleep(0.3)
-            log("表单填写", "⚠️ 户籍信息: 未能完成选择", "WARN")
+            log("表单填写", f"⚠️ [{label_text}]: 未能完成级联选择", "WARN")
             return False
 
         except Exception as e:
-            log("表单填写", f"⚠️ 户籍信息选择异常: {e}", "WARN")
+            log("表单填写", f"⚠️ [{label_text}] 级联选择异常: {e}", "WARN")
             try:
                 self.page.keyboard.press("Escape")
                 time.sleep(0.3)
             except:
                 pass
             return False
-
-
-
