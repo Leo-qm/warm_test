@@ -1,106 +1,104 @@
-# WARM 移动端代码分析报告 — 全链路自动化测试准备
+# WARM 移动端代码进阶分析报告 — 全链路自动化测试准备 (加强版)
 
-本报告基于 `warm_mobile` (uni-app) 的代码分析，旨在梳理移动端的页面结构、组件特征以及表单数据逻辑，为接下来的“移动端 + PC 端”全链路自动化测试打下基础。
-
-## 1. 技术栈与测试选型概览
-
-| 分类 | 技术/工具 | 说明 |
-|------|-----------|------|
-| 框架核心 | uni-app (Vue 2) | 编译到H5、小程序或APP跨端框架 |
-| UI 库 | uView UI 1.8.6 | 核心组件库，类名多包含 `u-` |
-| 状态管理 | Vuex | 管理坐标、用户信息等全局状态 |
-| 网络请求 | 内部封装 `utils/request.js` | 统一处理 Token 拦截、刷新、租户隔离 |
-| **测试建议选型** | **Playwright (Mobile Emulation)** | 若可编译为 H5 运行，使用 Playwright 的设备模拟（如 `devices['iPhone 12']`）是投入产出比最高的方案，可与目前 PC 测试框架无缝集成。 |
-| **替代选型** | **Minium / Airtest** | 若必须在真实的微信小程序或 App 环境运行，则需引入相关自动化方案。 |
+本报告基于 `warm_mobile` (uni-app) 的深度代码分析，全面梳理了移动端的业务逻辑、组件架构、状态管理、设备权限校验以及核心的表单数据转换，为构建 **“移动端提单 + PC 端审核”全链路 E2E 自动化测试** 提供精准的导航地图。
 
 ---
 
-## 2. 核心业务页面路由地图
+## 1. 架构概览与全局状态管理
 
-进入移动端页面配置在 `pages.json`，核心模块如下：
+### 1.1 技术栈特性
+*   **核心框架**：`uni-app (Vue 2)`，兼顾 H5、小程序多端编译。
+*   **UI 组件库**：`uView UI 1.8.6`，测试脚本中会大量遇到前缀为 `.u-` 的类名（如 `.u-input`, `.u-picker`）。
+*   **网络代理层**：`utils/request.js` 为基座，外加特有的 `api/proxy.js`（`proxyGet`, `proxyPost`），对部分接口增加了 `4201` 等业务状态码的兼容解析。
 
-| 模块 | 页面文件 | 路由路径 | 功能说明及测试关注点 |
-|------|----------|----------|----------------------|
-| **登录模块** | `pages-home/login/index.vue` | `/pages-home/login/index` | 移动端测试入口。支持验证码、获取短信等。包含首登强制引导协议弹窗。 |
-| **工作台** | `pages/declaration-business/index.vue`| `/pages/declaration-business/index` | 申报业务入口。 |
-| **申报列表** | `pages/declaration-business/village/index.vue` | `/pages/declaration-business/village/index` | 申报清单列表。注意：点击新增有弹窗选择“设备新增”或“设备更新”。 |
-| **设备新增** | `pages/.../village/subsidy-declaration.vue` | `/pages/declaration-business/village/subsidy-declaration` | **核心长表单页**。通过锚点滚动(`pageScrollTo`)实现视口内定位。 |
-| **设备更新** | `pages/.../village/equipment-update-declaration.vue`| `/pages/declaration-business/village/equipment-update-declaration`| **设备更新表单**。类似于新增，但带有前置的身份检索逻辑。 |
-| **审核列表** | `pages/examine/index.vue` | `/pages/examine/index` | 根据角色(village_manager等)自动重定向到村/镇级审核页。 |
-| **审核详情** | `pages/declaration/equipmentNewAudit.vue` | `/pages/declaration/equipmentNewAudit` | 审核设备新增数据的落地页。 |
-| **申报台账** | `pages/ledger/index.vue` | `/pages/ledger/index` | 台账列表，包含上传补贴材料入口。 |
-| **补贴上传** | `pages/ledger/subsidy-materials-upload.vue`| `/pages/ledger/subsidy-materials-upload` | 用户上传发票、现场比对图片等的核心业务页。 |
+### 1.2 全局状态 (Vuex Store 与缓存)
+移动端的权限验证和用户状态较为分散，测试时若需 Mock 状态或清理缓存，需重点关注：
+*   **用户信息存储**：在 `store/modules/user.js` 和缓存中共同维护。`uni.getStorageSync('userInfo')` 和 Vuex 内部均有保存。
+*   **角色控制 (Role)**：`roleType`（`village`, `town` 等）控制着页面跳转。例如 `pages/examine/index.vue`（审核容器页）会根据 `roles` 和 `userObj.villageId / townId` 自动重定向至村级 (`village/index.vue`) 或镇级 (`town/index.vue`) 的审核列表。
+*   **地理坐标 (Location)**：保存在 Vuex 的 `state.bindList` 和 `state.Area` 中，由逆地理编码解析得出（见后续权限章节）。
 
 ---
 
-## 3. DOM 结构与自动化测试选择器策略
+## 2. 核心业务路由与落地页
 
-由于 uni-app 最终编译的特殊性，测试时需要注意元素定位和操作方式：
-
-### 3.1 输入与表单组件
-- **输入框**：使用底层的 `<input class="uni-input">` 或 uView 的组件。
-  - 定位策略建议：使用文本关联或 `placeholder` 定位，例如 `page.locator("input[placeholder*='手机号码']")`。
-- **选择器 (Picker)**：一般为底部划出的选择面板 (`u-picker` 或原生的 `picker`)。
-  - 测试注意：选中选项后，需要显式点击“确定”才能完成值绑定。
-- **长表单视口与滚动**：
-  - 各个表单区块用 `<view id="sec-household" class="form-sec">` 划分。如果 Playwright 无法自动滚动到元素，可能需要调用原生滑动逻辑或在元素上触发点击前使用 `.scrollIntoViewIfNeeded()`。
-
-### 3.2 弹窗与确认框
-- **权限与协议同意弹窗** (Login页)：
-  登录页有强制引导弹窗：`.popup-box-chat`。首次登录必须点击 `.guide-button-wrapper .confirm-btn`。
-- **类型选择弹窗** (申报列表页)：
-  点击新增会触发弹窗 `DeclarationTypeDialog`，需要从弹窗内点击对应类型才能跳转到填表页。
-
-### 3.3 列表与无限滚动
-- 移动端列表多使用 `<scroll-view>` 以及基于 `@scrolltolower` (下拉触底) 进行分页加载。
-- **测试难点**：自动化验证分页加载时，需要模拟容器内的高频 Swipe 向下滚动事件或直接注入触底事件。
-- 行内操作：通过定位卡片 `.card` 并查找内部按钮如 `.action-submit`（提交）、`.action-edit`（编辑）。针对“更多操作”如果是在滑动滑块内，则需先模拟左滑。
+| 模块类别 | 页面组件 (`pages.json`) | 核心功能与测试关注点 |
+| :--- | :--- | :--- |
+| **入口基建** | `pages-home/login/index.vue` | 提供密码、验证码等登录方式。<br>⚠️ **首登弹窗**：带协议同意。 |
+| **列表大屏** | `pages/declaration-business/village/index` | 申报清单列表。通过按钮触发弹窗 `DeclarationTypeDialog`，选择新增或更新类型，测试脚本需跨隔离层定位。 |
+| **设备新增** | `pages/.../village/subsidy-declaration.vue` | 核心长表单。组件块化布局，依赖视口锚点滚动。 |
+| **设备更新** | `pages/.../village/equipment-update-declaration` | 类似于新增，包含针对老设备数据的 `isUpdateMode = true` 逻辑。 |
+| **审核列表** | `pages/examine/town/index.vue` 等 | 根据角色分为村镇不同视图。依靠滚动加载(`@scrolltolower`)，测试需模拟页面 `swipe` 实现翻页验证。 |
+| **审核详情** | `pages/declaration/equipmentNewAudit.vue`<br>`pages/declaration/equipmentUpdateAudit.vue` | 审核大页。<br>依靠 **`auditPhase`** 参数区分「资格审核阶段(0)」与「补贴审核阶段(1)」，进而控制各块 Tab 及内部组件读写状态。 |
 
 ---
 
-## 4. 数据字典与前后端桥接逻辑 (核心大坑预警 ⚠️)
+## 3. 移动端特有权限拦截 (自动化雷区 ⚠️)
 
-移动端 `utils/formDataConverter.js` 是全链路中极易引发数据断层的地方，必须重点测试：
+移动端大量调用了原生或 Web 浏览器的设备 API，在 `utils/power.js` 中进行了封装：
+*   **定位服务 (`scope.userLocation`)**：`userLocation()` 和 `fnGetlocation()` 。若被调用时未赋权，将阻断页面渲染并弹出需要用户确认的 `showModal`。
+*   **摄像头与麦克风 (`scope.camera`, `scope.record`)**：在上传图片组或人脸识别环节被唤醒。
 
-### 4.1 核心职能
-因为移动端继承了部分前端组件的驼峰命名(`camelCase`)习惯或老版数据协议，在保存往后端发请求前，会通过 `convertToNewFormat()` 强制洗为 `snake_case`；反之列表或详情回显时，由 `convertToOldFormat()` 洗回来。同时还要处理文件数组中携带的 `uid` 以及关联审核记录的状态(`auditOpinion`, `auditStatus`)。
-
-**关键字段转换映射 (ARCHIVE_INFO_FIELD_MAP):**
-* `householdHeadName` $\rightarrow$ `household_name`
-* `idCard` $\rightarrow$ `household_id_card`
-* `customerNumber` $\rightarrow$ `customer_number`
-* `installationAddress` $\rightarrow$ `install_address`
-* `houseNumber` $\rightarrow$ `house_number`
-
-### 4.2 设备更新隔离字段 (Update vs Applicant)
-在设备更新模式下 (`isUpdateMode === true`)，为了防范更新申报数据污染或覆盖掉“初次安装时（资格申报）”的历史快照，引入了强隔离机制：
-* 原有字段 `applicant_name` 在更新阶段必须从 `update_applicant_name` 中读写。
-* 证书附件等也从 `applicant_equipment_photo` 变成了 `update_applicant_equipment_photo`。
-
-> **自动化测试建议** $\rightarrow$ 服务端接口或端到端验证时，如果涉及设备更新流，断言及Mock时极度容易用错键名，请务必核对 `update_` 前缀及其在转换器内的转换映射规则。
+> **自动化解法**：在 Playwright 启动 `BrowserContext` 时，**必须** 显式授予这些权限：
+> ```python
+> context = browser.new_context(
+>     geolocation={"longitude": 116.397128, "latitude": 39.916527},
+>     permissions=["geolocation", "camera", "microphone"]
+> )
+> ```
 
 ---
 
-## 5. 多端全链路测试（Mobile + PC）规划建议
+## 4. 表单转换与前后端双向绑定机制 (高故障率区域 ⚠️)
 
-考虑到我们已有的 `warm_test` 仓库使用 Playwright-Python 框架，可通过在运行时启动 Mobile Emulation，做到在单个 Test Case 中跑通从移动端上报到 PC 端审核的完整闭环。
+无论是 PC 还是移动端，`utils/formDataConverter.js` 都是最脆弱、最体现领域逻辑的地方，移动端的处理甚至比 PC 更加严格：
 
-### 5.1 流程剧本：基础设备新增全链路
-1. **[步骤一：移动端申报]**
-    - 创建一个带 Mobile 视窗（如 `viewport={'width': 375, 'height': 812}`、及相应 user-agent）的 Context。
-    - **[角色: 农户/网格员]** 登录移动端，勾选协议，进入主页和申报业务。
-    - 填写并上报“设备新增”表单。上传身份正反面和基本资料。验证移动端台账列表页面状态切换为“待审批”。
-2. **[步骤二：PC端初审驳回测试]**
-    - 另开一个大屏 Context。
-    - **[角色: 村级管理员]** 登录 PC 审核大厅，定位该移动端发起的表单，并在任一组件块加上驳回意见后驳回。
-3. **[步骤三：移动端申诉与修正]**
-    - 回到移动端 Context，刷新台账列表。检查是否出现“资格审核驳回”状态 (`isAppealMode` 展现红字驳回意见)。
-    - **[角色: 农户/网格员]** 进入编辑并重提。
-4. **[步骤四：PC端闭环]**
-    - **[角色: 镇级管理员]** PC 端接手完成资格审批，移动端再提交补贴材料，PC端完成补贴终审。记录台账和归档完成。
+### 4.1 字段名的「驼峰 ⇄ 蛇形」互转
+历史架构导致应用前端使用了驼峰如 `installationAddress`。但后端一律要求蛇形 `install_address`。
+*   **映射常量**：如 `householdHeadName` $\rightarrow$ `household_name`。
+*   **同步清洗**：在 `convertToNewFormat()` 时，转换器会强制将旧有属性清除替换；如果是数组类型，还要维护文件的 `uid`、`auditStatus` 和 `auditOpinion` 等元数据（`mergeAuditFromSource`）。
 
-### 5.2 现有框架调整点 (Action Items)
+### 4.2 设备更新模式的「前缀隔离」
+当执行 `EQUIPMENT_UPDATE` 业务线时，为防止修改操作污染了原设备的初始存证，大量核心字段会被 `isUpdateMode` 判断并打上 `update_` 前缀：
+*   原生 `applicant_name` 在更新模式中对应 `update_applicant_name`。
+*   原生 `applicant_equipment_photo` 对应 `update_applicant_equipment_photo`。
 
-- **PO 模型补齐**：需在 `warm_test/pages` 目录下新增移动端专属 Page Object（如 `MobileLoginPage`、`MobileDeclarationPage`），继承 `BasePage` 但选择器适配 H5 类名或 `placeholder`。
-- **环境隔离配置**：需要查明或配置当前 uni-app H5 模式下的入口地址（一般类似于 `http://localhost:8080/` 或者测试环境的 `/h5/` 网关），并在 `utils/config.py` 中补充 `MOBILE_URL` 常量。
-- **权限跳过与Mock**：移动端代码中包含了如获取经纬度、拍照授权、录音授权等(`userLocation`, `getSysCamera`, `getSysRecord`) 逻辑。在 Playwright 配置中需提前注入 Browser Context 的 `geolocation` 权限并授权：`context.grant_permissions(['geolocation'])`，免于被运行时出现的白屏拦截死锁。
+> **测试数据构造建议**：在编写 `DataFactory` 构造接口模拟或 Payload 比对断言时，若执行「设备更新流」，所有的字段提取需加上 `update_` 判断，否则断言必定失败。
+
+---
+
+## 5. 多阶段审核状态的映射关系
+
+前端 `constants/workflowStatus.js` 定义了与后端的协议对应，这是我们使用接口获取状态、下发断言判定的唯一准则：
+*   **资格审核** (0, 14)：村级资格=14，镇级资格=0。
+*   **补贴审核** (3, 8)：村级补贴=3，镇级补贴=8。
+*   **驳回状态** (15, 1, 4, 11, 6)：分散在不同审查节点。
+
+对应的 `EXAMINE_WORKFLOW_STATUS_LIST` 决定了不同身份角色调用列表接口时（如 `getDeclarationPage`）应当传输的状态筛选集合 (`14,3` 或 `0,8`)。
+
+---
+
+## 6. Playwright E2E 测试扩展策略指南
+
+鉴于 `warm_test` 中已有优秀的基于 POM 模式维护的 PC 自动化测试架构，我们可以沿用其思想：
+
+### 6.1 工程层：Mobile 视图模拟
+推荐在现有的 `utils/config.py` 与 `test_cases/` 中引入移动设备能力，创建特定的 Mobile 标识，并在 Setup 时通过 Playwright 的设备描述符：
+```python
+from playwright.sync_api import sync_playwright
+
+def test_mobile_declaration(playwright):
+    iphone_12 = playwright.devices['iPhone 12']
+    browser = playwright.chromium.launch()
+    # 挂载设备信息和免弹窗权限
+    context = browser.new_context(**iphone_12, permissions=["geolocation"])
+    page = context.new_page()
+    # 后续走移动端的 POM
+```
+
+### 6.2 业务层：Mobile - PC 协同交互长流程剧本
+最体现移动端自动化价值的用例，莫过于模拟现场干部的办公长流转：
+1.  **[Device: Phone] 村干部入户**：用带 H5 Emulation 的 `page` 登录 `village`，生成一条 "新增设备"，进入 `subsidy-declaration` 填单并 "提交"。
+2.  **[Device: Desktop] 镇审核员批复**：用常规 PC 屏幕的 `page` 登录 `town`，打开审核后台，对刚才产生的数据（按 `orderId` 查询）进行 "驳回"。
+3.  **[Device: Phone] 再次确认回退状态**：手机端执行下拉刷新，验证台账卡片上出现 "资格审核驳回" 的红字，且点开后能看到 `auditOpinion`。
+
+通过这份深化分析，您的自动化团队现已完全掌握该体系移动端的内部黑盒运作逻辑。后续可基于此直接向 `warm_test` 添加各类移动端 E2E 脚本。
