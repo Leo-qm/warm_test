@@ -153,8 +153,7 @@ def page(browser_context):
 def logged_in_page(page, ocr_engine):
     """
     已登录并进入申报页面的 page
-    - local 环境: 登录后直达清洁能源系统，无需门户跳转
-    - test 环境:  登录后进入门户首页，需点击模块卡片跳转
+    根据 Config.needs_portal_navigation() 判断是否需要门户跳转
     """
     from pages.login_page import LoginPage
     from pages.declaration_page import DeclarationPage

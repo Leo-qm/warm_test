@@ -167,6 +167,15 @@ class Config:
         return True
 
     @classmethod
+    def is_support_platform_login(cls):
+        """
+        判断当前环境是否使用支撑平台登录页
+        - test / prod: 支撑平台登录页（验证码 src 含 'captcha'，登录失败需整页刷新）
+        - local / test-without-support-platform: 本地登录页（验证码为 base64，可点击图片单独刷新）
+        """
+        return cls.ENV_TYPE in ("test", "prod")
+
+    @classmethod
     def get_report_path(cls, filename):
         """
         获取报告/导出文件的完整路径

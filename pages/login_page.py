@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""登录页面封装 — 自动适配 local/test 环境的验证码识别与登录重试"""
+"""登录页面封装 — 自动适配各环境的验证码识别与登录重试"""
 import time
 from pages.base_page import BasePage
 import allure
@@ -8,18 +8,18 @@ from utils.logger import log, log_err
 
 
 class LoginPage(BasePage):
-    """登录页 — 封装登录流程与菜单导航（自动适配 local/test 环境）"""
+    """登录页 — 封装登录流程与菜单导航（自动适配各环境登录页差异）"""
 
     def __init__(self, page, ocr):
         super().__init__(page)
         self.ocr = ocr
 
     def _get_captcha_img_locator(self):
-        """获取验证码图片定位器（兼容 test/local 环境）"""
-        if Config.ENV_TYPE == "local":
-            return self.page.locator("img[src^='data:image']").first
-        else:
+        """获取验证码图片定位器（支撑平台用 captcha URL，本地用 base64）"""
+        if Config.is_support_platform_login():
             return self.page.locator("img[src*='captcha']").first
+        else:
+            return self.page.locator("img[src^='data:image']").first
 
     @allure.step("登录系统 (角色: {role})")
     def login(self, role="village"):
@@ -49,12 +49,12 @@ class LoginPage(BasePage):
 
                 if i > 1:
                     log("登录", f"正在执行第 {i} 次登录尝试...", "INFO")
-                    if env != "test":
-                        # local 策略3（物理刷新）每 3 次触发一次，此时需要重填账号密码
+                    if not Config.is_support_platform_login():
+                        # 本地登录页：策略3（物理刷新）每 3 次触发一次，此时需要重填账号密码
                         use_force_reload = (i % 3 == 0)
                         self._trigger_captcha_refresh(force_reload=use_force_reload)
                         need_fill_credentials = use_force_reload
-                    # test 环境的刷新已在失败时处理完毕
+                    # 支撑平台登录页的刷新已在失败时处理完毕
 
                 self.page.wait_for_selector("input[placeholder*='用户名']", timeout=10000)
 
@@ -68,7 +68,7 @@ class LoginPage(BasePage):
                     actual_len = len(code) if code else 0
                     log("登录", f"验证码识别位数不符 (预期 {captcha_len} 位，实际 {actual_len} 位: {code})，正在主动刷新...", "WARN")
                     
-                    if env == "test":
+                    if Config.is_support_platform_login():
                         self.page.reload()
                         time.sleep(1.5)
                         need_fill_credentials = True
@@ -103,7 +103,7 @@ class LoginPage(BasePage):
                 login_btn = self.page.locator("#btnSubmit, .lgoinBtn, #loginBtn, .el-button--primary").first
                 login_btn.click()
 
-                if env == "test":
+                if Config.is_support_platform_login():
                     try:
                         adv_btn = self.page.locator("#details-button, text=高级, text=Advanced")
                         if adv_btn.is_visible(timeout=1500):
@@ -120,8 +120,8 @@ class LoginPage(BasePage):
                         txt = error_msg_loc.inner_text().strip()
                         log("登录", f"业务报错: {txt}", "WARN")
                         if "验证码" in txt or "错误" in txt:
-                            if env == "test":
-                                log("登录", "test 环境强制刷新页面...", "WARN")
+                            if Config.is_support_platform_login():
+                                log("登录", "支撑平台登录页强制刷新页面...", "WARN")
                                 self.page.reload()
                                 time.sleep(1.5)
                                 need_fill_credentials = True
