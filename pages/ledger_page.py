@@ -208,12 +208,52 @@ class LedgerPage(BasePage):
             log("补贴申报", f">> [特殊补贴] 是否申报: {special_subsidy}", "STEP")
             try:
                 special_section = self.page.locator(".el-form-item").filter(has_text="是否申报特殊补贴")
-                radio_btn = special_section.locator("label.el-radio").filter(has_text=special_subsidy).first
+                # Element UI el-radio: 通过 span.el-radio__label 精准匹配文本，再回溯到 label 点击
+                radios = special_section.locator("label.el-radio")
+                target_radio = None
+                for i in range(radios.count()):
+                    radio = radios.nth(i)
+                    label_text = radio.locator("span.el-radio__label").inner_text(timeout=2000).strip()
+                    if label_text == special_subsidy:
+                        target_radio = radio
+                        break
 
-                if radio_btn.is_visible(timeout=2000):
-                    radio_btn.click(force=True)
+                if target_radio:
+                    # 点击 el-radio__inner（可视圆点），确保触发 Vue change 事件
+                    inner = target_radio.locator("span.el-radio__inner")
+                    if inner.is_visible(timeout=2000):
+                        inner.click()
+                    else:
+                        target_radio.click()
                     time.sleep(0.5)
-                    log("表单填写", f"✅ 是否申报特殊补贴: 已选 [{special_subsidy}]")
+
+                    # 验证选中状态（el-radio 选中后 class 会包含 is-checked）
+                    is_checked = "is-checked" in (target_radio.get_attribute("class") or "")
+                    if is_checked:
+                        log("表单填写", f"✅ 是否申报特殊补贴: 已选 [{special_subsidy}] (已验证选中)")
+                    else:
+                        log("表单填写", f"⚠️ 是否申报特殊补贴: 点击了 [{special_subsidy}] 但未检测到选中状态，尝试JS兜底", "WARN")
+                        # JS 兜底：直接触发 radio input 的 click
+                        self.page.evaluate(f"""(targetText) => {{
+                            const items = document.querySelectorAll('.el-form-item');
+                            for (const item of items) {{
+                                if (!item.textContent.includes('是否申报特殊补贴')) continue;
+                                const radios = item.querySelectorAll('label.el-radio');
+                                for (const radio of radios) {{
+                                    const label = radio.querySelector('.el-radio__label');
+                                    if (label && label.textContent.trim() === targetText) {{
+                                        const input = radio.querySelector('input[type="radio"]');
+                                        if (input) {{
+                                            input.click();
+                                            input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                        }}
+                                        return;
+                                    }}
+                                }}
+                            }}
+                        }}""", special_subsidy)
+                        time.sleep(0.5)
+                        log("表单填写", f"✅ 是否申报特殊补贴: JS兜底点击 [{special_subsidy}]")
 
                     if special_subsidy == "是":
                         self.wait_for_vue_update()
@@ -233,7 +273,7 @@ class LedgerPage(BasePage):
                         except Exception as e:
                             log("表单填写", f"⚠️ 特殊补贴证明材料上传失败: {e}", "WARN")
                 else:
-                    log("表单填写", f"⚠️ 特殊补贴信息: '{special_subsidy}'选项不可见", "WARN")
+                    log("表单填写", f"⚠️ 未在radio列表中找到 '{special_subsidy}' 选项", "WARN")
             except Exception as e:
                 log("表单填写", f"⚠️ 特殊补贴信息处理异常: {e}", "WARN")
 

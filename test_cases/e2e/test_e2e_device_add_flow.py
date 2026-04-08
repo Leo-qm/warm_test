@@ -40,7 +40,7 @@ class TestDeviceAddFlow:
         """
         # ==================== 初始化 ====================
         role_mgr = role_manager
-        test_data = DataFactory.build_test_data()
+        test_data = DataFactory.build_test_data(is_household=is_household)
         order_id = None  # 全流程共享的申报编号
         # 用户编号在整个业务周期中唯一不变，用于台账/审核搜索
         user_number = test_data["user_number"]

@@ -102,7 +102,7 @@ class TestDeviceUpdateFlow:
                 "installer_name": test_data["installer_name"],
                 "installer_phone": test_data["installer_phone"],
                 "invoice_number": test_data["invoice_number"],
-                "special_subsidy": "否",
+                "special_subsidy": special_subsidy,
             }
             submitted = ledger_page.fill_subsidy_declaration(subsidy_data)
             assert submitted, "❌ 前置条件失败：设备新增补贴申报提交失败"
