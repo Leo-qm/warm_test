@@ -654,7 +654,7 @@ class DeclarationPage(BasePage):
                 btn = self.page.locator("button:has-text('保存并上报') >> visible=true").first
                 btn.click()
                 log("新增", "等待系统响应...")
-                return self._wait_save_and_capture_order_id("新增")
+                return self._wait_save_and_capture_order_id("新增", success_text="成功")
             except Exception as e:
                 log("新增", f"❌ 保存并上报失败: {e}", "ERROR")
                 return None
@@ -669,21 +669,22 @@ class DeclarationPage(BasePage):
                 log("新增", f"❌ 保存或编号抓取失败: {e}", "ERROR")
                 return None
 
-    def _wait_save_and_capture_order_id(self, tag="保存", timeout=15000):
-        """等待保存成功提示并从列表首行抓取 SB 格式的系统申报编号。
+    def _wait_save_and_capture_order_id(self, tag="保存", timeout=15000, success_text="保存成功"):
+        """等待保存/上报成功提示并从列表首行抓取 SB 格式的系统申报编号。
 
         此方法是 _save_form() 和 create_device_update_record() 共享的核心逻辑，
         避免在两处重复实现相同的等待和抓取流程。
 
         Args:
             tag: 日志标签，用于区分调用来源
-            timeout: 等待保存成功提示的超时时间（毫秒）
+            timeout: 等待成功提示的超时时间（毫秒）
+            success_text: 等待的成功提示文本，默认'保存成功'，保存并上报时传'成功'以兼容多种提示
         Returns:
             str: 抓取到的申报编号，失败返回 None
         """
         try:
-            self.page.wait_for_selector("text=保存成功", timeout=timeout)
-            log(tag, "✅ 保存成功提示已出现")
+            self.page.wait_for_selector(f"text={success_text}", timeout=timeout)
+            log(tag, f"✅ {success_text}提示已出现")
             time.sleep(Config.SHORT_WAIT)
 
             # 等待弹窗关闭
