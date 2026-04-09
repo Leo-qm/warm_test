@@ -18,14 +18,18 @@ class DeclarationPage(BasePage):
         )
         log("导航", "✅ 已进入新增申报管理页面", "OK")
 
-    def create_record(self, data):
-        """[Create] 点击添加并填写全表单（设备新增）"""
-        log("业务步骤", "执行 [新增] 记录流程", "STEP")
+    def create_record(self, data, submit_action="save"):
+        """[Create] 点击添加并填写全表单（设备新增）
+
+        :param data: 表单数据
+        :param submit_action: 'save'(仅保存) 或 'submit'(保存并上报)
+        """
+        log("业务步骤", f"执行 [新增] 记录流程 (动作: {submit_action})", "STEP")
         self.page.click("button:has-text('添加')")
         self.page.click(".declaration-type-dialog .type-button:has-text('设备新增')")
         self.page.locator(".section-title:has-text('户主信息')").first.wait_for(state="visible", timeout=Config.PAGE_LOAD_TIMEOUT)
         self._fill_form_content(data)
-        return self._save_form()
+        return self._save_form(submit_action=submit_action)
 
     def create_device_update_record(self, id_card, data=None, submit_action="submit"):
         """
@@ -639,17 +643,31 @@ class DeclarationPage(BasePage):
             time.sleep(Config.UPLOAD_WAIT)
 
 
-    def _save_form(self):
-        """保存表单并捕获新生成的申报编号"""
-        log("新增", "点击【保存】（生成系统编号）", "STEP")
-        try:
-            btn = self.page.locator("button:has-text('保 存') >> visible=true").first
-            btn.click()
-            log("新增", "等待系统响应...")
-            return self._wait_save_and_capture_order_id("新增")
-        except Exception as e:
-            log("新增", f"❌ 保存或编号抓取失败: {e}", "ERROR")
-            return None
+    def _save_form(self, submit_action="save"):
+        """保存或保存并上报表单，并捕获新生成的申报编号
+
+        :param submit_action: 'save'(仅保存) 或 'submit'(保存并上报)
+        """
+        if submit_action == "submit":
+            log("新增", "点击【保存并上报】", "STEP")
+            try:
+                btn = self.page.locator("button:has-text('保存并上报') >> visible=true").first
+                btn.click()
+                log("新增", "等待系统响应...")
+                return self._wait_save_and_capture_order_id("新增")
+            except Exception as e:
+                log("新增", f"❌ 保存并上报失败: {e}", "ERROR")
+                return None
+        else:
+            log("新增", "点击【保存】（生成系统编号）", "STEP")
+            try:
+                btn = self.page.locator("button:has-text('保 存') >> visible=true").first
+                btn.click()
+                log("新增", "等待系统响应...")
+                return self._wait_save_and_capture_order_id("新增")
+            except Exception as e:
+                log("新增", f"❌ 保存或编号抓取失败: {e}", "ERROR")
+                return None
 
     def _wait_save_and_capture_order_id(self, tag="保存", timeout=15000):
         """等待保存成功提示并从列表首行抓取 SB 格式的系统申报编号。

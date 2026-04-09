@@ -65,7 +65,7 @@ class TestDeviceUpdateFlow:
             declaration_page = DeclarationPage(page)
             declaration_page.navigate_to_declaration()
 
-            original_order_id = declaration_page.create_record(test_data)
+            original_order_id = declaration_page.create_record(test_data, submit_action="submit")
             assert original_order_id, "❌ 前置条件失败：设备新增申报创建失败"
             log("E2E", f"✅ 设备新增申报创建成功: {original_order_id}", "OK")
 

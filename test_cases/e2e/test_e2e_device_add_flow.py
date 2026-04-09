@@ -64,7 +64,7 @@ class TestDeviceAddFlow:
             declaration_page.navigate_to_declaration()
 
             # 创建申报记录
-            order_id = declaration_page.create_record(test_data)
+            order_id = declaration_page.create_record(test_data, submit_action="submit")
             assert order_id, "❌ 设备新增申报创建失败：未能抓取到系统生成的申报编号"
             log("E2E", f"✅ 设备新增申报创建成功，申报编号: {order_id}", "OK")
 
